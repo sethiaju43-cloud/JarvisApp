@@ -1,0 +1,125 @@
+package com.jarvis.app
+
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.provider.MediaStore
+
+object CommandHandler {
+
+    private val knownApps = mapOf(
+        "youtube" to "com.google.android.youtube",
+        "whatsapp" to "com.whatsapp",
+        "instagram" to "com.instagram.android",
+        "chrome" to "com.android.chrome",
+        "facebook" to "com.facebook.katana",
+        "telegram" to "org.telegram.messenger",
+        "gmail" to "com.google.android.gm",
+        "maps" to "com.google.android.apps.maps"
+    )
+
+    private val fillerWords = listOf(
+        "kholo", "khol", "open", "karo", "kar", "do", "dena", "jao",
+        "ko", "app", "please", "jarvis", "jarvi", "click", "tap", "dabao"
+    )
+
+    /** Command mila to reply text lautao, nahi mila to null (tab Gemini se baat hogi) */
+    fun handle(context: Context, raw: String): String? {
+        val t = raw.lowercase().trim()
+
+        // App kholo
+        if (t.contains("kholo") || t.contains("khol ") || t.endsWith("khol") ||
+            t.startsWith("open ")
+        ) {
+            val name = cleanName(t)
+            if (name.contains("camera")) {
+                return launchIntent(
+                    context, Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA),
+                    "Camera khol diya!"
+                )
+            }
+            return openApp(context, name)
+        }
+
+        // Phone control (Accessibility chahiye)
+        val isControl = t.contains("back") || t.contains("home") ||
+            t.contains("scroll") || t.contains("click") || t.contains("tap") ||
+            t.contains("recent")
+
+        if (isControl) {
+            val svc = JarvisAccessibilityService.instance
+                ?: return "Pehle Permissions mein Accessibility Service allow karo 🔐"
+
+            return when {
+                t.contains("back") || t.contains("peeche") -> {
+                    svc.goBack(); "Back kar diya!"
+                }
+                t.contains("home") -> {
+                    svc.goHome(); "Home par aa gaye!"
+                }
+                t.contains("recent") -> {
+                    svc.openRecents(); "Recent apps khol diye!"
+                }
+                t.contains("scroll") || t.contains("niche") || t.contains("neeche") ||
+                    t.contains("upar") -> {
+                    if (t.contains("upar") || t.contains("up")) {
+                        svc.scrollUp(); "Upar scroll kar diya!"
+                    } else {
+                        svc.scrollDown(); "Neeche scroll kar diya!"
+                    }
+                }
+                t.contains("click") || t.contains("tap") -> {
+                    val name = cleanName(t)
+                    if (name.isBlank()) {
+                        svc.tapCenter(); "Tap kar diya!"
+                    } else if (svc.clickByText(name)) {
+                        "'$name' par click kar diya!"
+                    } else {
+                        "Screen par '$name' nahi mila 😕"
+                    }
+                }
+                else -> null
+            }
+        }
+        return null
+    }
+
+    private fun cleanName(t: String): String {
+        val words = t.split(" ").filter { it.isNotBlank() && it !in fillerWords }
+        return words.joinToString(" ").trim()
+    }
+
+    private fun openApp(context: Context, name: String): String {
+        if (name.isBlank()) return "Kaunsa app kholu? 🤔"
+        val pm = context.packageManager
+
+        // Pehle known apps dekho
+        val pkg = knownApps.entries.firstOrNull { name.contains(it.key) }?.value
+        if (pkg != null) {
+            val i = pm.getLaunchIntentForPackage(pkg)
+            if (i != null) return launchIntent(context, i, "$name khol diya!")
+        }
+
+        // Nahi mila to installed apps ke naam mein dhundo
+        val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val list = pm.queryIntentActivities(main, PackageManager.MATCH_ALL)
+        for (ri in list) {
+            val label = ri.loadLabel(pm).toString().lowercase()
+            if (label.contains(name) || name.contains(label)) {
+                val i = pm.getLaunchIntentForPackage(ri.activityInfo.packageName)
+                if (i != null) return launchIntent(context, i, "${ri.loadLabel(pm)} khol diya!")
+            }
+        }
+        return "'$name' app mujhe nahi mila 😕"
+    }
+
+    private fun launchIntent(context: Context, i: Intent, okMsg: String): String {
+        return try {
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(i)
+            okMsg
+        } catch (e: Exception) {
+            "App khol nahi paya 😕"
+        }
+    }
+}
