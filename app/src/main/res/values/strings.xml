@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="accessibility_desc">Jarvis aapke voice command par Back, Home, Scroll aur Tap jaise kaam karega.</string>
+</resources>
