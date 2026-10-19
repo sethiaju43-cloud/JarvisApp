@@ -1,11 +1,11 @@
 package com.jarvis.app
 
 import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
 import android.view.animation.AccelerateDecelerateInterpolator
-import android.animation.ValueAnimator
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.jarvis.app.databinding.ActivityMainBinding
@@ -55,8 +55,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Overlay permission mili hai to floating Jarvi start karo
-        if (Settings.canDrawOverlays(this)) {
+        // Floating Jarvi sirf tab chalao jab Settings mein ON ho aur permission mili ho
+        val floatingOn = getSharedPreferences("jarvis", MODE_PRIVATE)
+            .getBoolean("floating", true)
+        if (floatingOn && Settings.canDrawOverlays(this)) {
             ContextCompat.startForegroundService(
                 this, Intent(this, FloatingService::class.java)
             )
