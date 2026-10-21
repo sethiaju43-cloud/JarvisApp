@@ -161,7 +161,7 @@ object CommandHandler {
 
         if (isControl && wordCount <= 6) {
             val svc = JarvisAccessibilityService.instance
-                ?: return "Pehle Permissions mein Accessibility Service allow karo 🔐"
+                ?: return "Accessibility atak gayi 😕 Settings mein Jarvis Phone Control ek baar OFF phir ON karo"
 
             return when {
                 t.contains("back") || t.contains("peeche") -> {
@@ -183,10 +183,10 @@ object CommandHandler {
                     val name = cleanName(t)
                     if (name.isBlank()) {
                         svc.tapCenter(); "Tap kar diya!"
-                    } else if (svc.clickByText(name)) {
+                    } else if (svc.clickBest(name)) {
                         "'$name' par click kar diya!"
                     } else {
-                        "Screen par '$name' nahi mila 😕"
+                        null
                     }
                 }
                 else -> null
@@ -246,14 +246,14 @@ object CommandHandler {
             return "Ruk gayi 🛑"
         }
 
-        // Call: Accessibility ki zarurat nahi
+        // Call: Accessibility ki zarurat nahi (naam screen se dhundna ho to chahiye)
         if (up.startsWith("CALL")) {
             val target = line.drop(4).trim().trim('"', '\'', '<', '>')
             return callTarget(context, target)
         }
 
         val svc = JarvisAccessibilityService.instance
-            ?: return "Pehle Permissions mein Accessibility Service allow karo 🔐"
+            ?: return "Accessibility atak gayi 😕 Settings mein Jarvis Phone Control ek baar OFF phir ON karo"
 
         if (up.startsWith("TYPE")) {
             val txt = line.drop(4).trim().trim('"', '\'')
@@ -268,11 +268,9 @@ object CommandHandler {
         if (up.startsWith("CLICK")) {
             val name = line.drop(5).trim().trim('"', '\'')
             if (name.isBlank()) return "Kaunsa button dabaun? 🤔"
-            return if (svc.clickByText(name)) {
-                "'" + name + "' dabaa diya! 👆"
-            } else {
-                "Screen par '" + name + "' nahi mila 😕"
-            }
+            if (svc.clickBest(name)) return "'" + name + "' dabaa diya! 👆"
+            // Text se nahi mila (icon ya game ka button): screenshot dekh kar dhundo
+            return GeminiClient.visionTap(context, name)
         }
 
         if (up.contains("SCROLL")) {
@@ -304,7 +302,17 @@ object CommandHandler {
             return placeCall(context, digits, digits)
         }
 
-        // 2) Naam hai to Contacts mein dhundo (agar permission hai)
+        // 2) "Is number par call karo": screen par likha number
+        val compact = target.lowercase().replace(" ", "")
+        val generic = compact.isEmpty() || compact == "number" || compact == "screen" ||
+            compact == "isnumber" || compact == "thisnumber"
+        if (generic) {
+            val s = numberFromScreen()
+            if (s != null) return placeCall(context, s, s)
+            return "Screen par mujhe number nahi dikha. Number bolkar batao 📞"
+        }
+
+        // 3) Naam hai to Contacts mein dhundo (agar permission hai)
         if (hasContacts(context)) {
             for (n in target.split("|")) {
                 val c = findContact(context, n.trim())
@@ -312,15 +320,17 @@ object CommandHandler {
             }
         }
 
-        // 3) Screen par likha number dhundo (jaise dialer mein)
-        val fromScreen = numberFromScreen()
-        if (fromScreen != null) {
-            return placeCall(context, fromScreen, fromScreen)
+        // 4) Naam screen par dikh raha ho (dialer ya contacts list) to us par tap karo
+        val svc = JarvisAccessibilityService.instance
+        if (svc != null) {
+            for (n in target.split("|")) {
+                if (n.isNotBlank() && svc.clickBest(n.trim())) {
+                    return "'" + n.trim() + "' par tap kar diya 👆 Call na lage to bolo: call button dabao"
+                }
+            }
         }
-
         if (!hasContacts(context)) {
-            return "Mujhe number nahi mila. Number bolkar ya screen par likhkar bolo 📞 " +
-                "(Naam se call ke liye Contacts permission abhi jodni baaki hai)"
+            return "Naam se call ke liye Permissions mein Contacts allow karo 📒"
         }
         return "'" + target + "' naam ka contact nahi mila 😕"
     }
