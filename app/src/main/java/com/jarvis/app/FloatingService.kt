@@ -395,7 +395,7 @@ class FloatingService : Service() {
         val key = getSharedPreferences("jarvis", MODE_PRIVATE)
             .getString("api_key", "") ?: ""
         Thread {
-            val r = GeminiClient.ask(key, snapshot)
+            val r = GeminiClient.askSmart(applicationContext, key, snapshot)
             handler.post {
                 history.add(Pair("model", r))
                 while (history.size > 16) {
