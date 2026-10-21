@@ -2,10 +2,17 @@ package com.jarvis.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
 import android.graphics.Path
+import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.core.content.ContextCompat
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class JarvisAccessibilityService : AccessibilityService() {
 
@@ -58,15 +65,18 @@ class JarvisAccessibilityService : AccessibilityService() {
         dispatchGesture(g, null, null)
     }
 
-    fun tapCenter() {
-        val dm = resources.displayMetrics
-        val path = Path().apply {
-            moveTo(dm.widthPixels / 2f, dm.heightPixels / 2f)
-        }
+    fun tapAt(x: Float, y: Float) {
+        val path = Path()
+        path.moveTo(x, y)
         val g = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
             .build()
         dispatchGesture(g, null, null)
+    }
+
+    fun tapCenter() {
+        val dm = resources.displayMetrics
+        tapAt(dm.widthPixels / 2f, dm.heightPixels / 2f)
     }
 
     private fun activeRoot(): AccessibilityNodeInfo? {
@@ -106,24 +116,103 @@ class JarvisAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** Screen par jis text ka button/item dikhe use click karo */
-    fun clickByText(text: String): Boolean {
-        try {
-            val root = activeRoot() ?: return false
-            val nodes = root.findAccessibilityNodeInfosByText(text)
-            for (n in nodes) {
-                var cur: AccessibilityNodeInfo? = n
-                while (cur != null) {
-                    if (cur.isClickable) {
-                        cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        return true
-                    }
-                    cur = cur.parent
-                }
-            }
-        } catch (e: Exception) {
+    private fun labelOf(n: AccessibilityNodeInfo): String {
+        val t = n.text
+        if (t != null && t.toString().isNotBlank()) return t.toString().trim()
+        val d = n.contentDescription
+        if (d != null && d.toString().isNotBlank()) return d.toString().trim()
+        return ""
+    }
+
+    private fun isMenuLike(s: String): Boolean {
+        val l = s.lowercase()
+        return l.contains("more options") || l.contains("action menu") || l.contains("menu") ||
+            l.contains("overflow") || l.contains("three dot") || l.contains("3 dot") ||
+            l.contains("dismiss") || l.contains("share")
+    }
+
+    private fun collectNodes(
+        n: AccessibilityNodeInfo?,
+        out: ArrayList<AccessibilityNodeInfo>,
+        depth: Int
+    ) {
+        if (n == null || depth > 40 || out.size > 1500) return
+        out.add(n)
+        for (i in 0 until n.childCount) {
+            collectNodes(n.getChild(i), out, depth + 1)
+        }
+    }
+
+    private fun hasClickableParent(n: AccessibilityNodeInfo): Boolean {
+        var cur: AccessibilityNodeInfo? = n.parent
+        var d = 0
+        while (cur != null && d < 6) {
+            if (cur.isClickable) return true
+            cur = cur.parent
+            d++
         }
         return false
+    }
+
+    /** Screen par sabse sahi match wali cheez dabao (menu/3-dot ko kam number milta hai) */
+    fun clickBest(text: String): Boolean {
+        try {
+            val root = activeRoot() ?: return false
+            val want = text.trim().lowercase()
+            if (want.isEmpty()) return false
+            val all = ArrayList<AccessibilityNodeInfo>()
+            collectNodes(root, all, 0)
+            var best: AccessibilityNodeInfo? = null
+            var bestScore = 0
+            for (n in all) {
+                if (!n.isVisibleToUser) continue
+                val label = labelOf(n).lowercase()
+                if (label.isEmpty()) continue
+                var score = 0
+                if (label == want) {
+                    score = 100
+                } else if (label.startsWith(want)) {
+                    score = 80
+                } else if (label.contains(want)) {
+                    score = 50
+                } else if (label.length >= 3 && want.contains(label)) {
+                    score = 30
+                }
+                if (score == 0) continue
+                if (isMenuLike(label) && !isMenuLike(want)) score -= 60
+                val r = Rect()
+                n.getBoundsInScreen(r)
+                val area = r.width().toLong() * r.height().toLong()
+                score += Math.min(20L, area / 20000L).toInt()
+                if (n.isClickable || hasClickableParent(n)) score += 10
+                if (score > bestScore) {
+                    best = n
+                    bestScore = score
+                }
+            }
+            val b = best ?: return false
+            if (bestScore < 30) return false
+            var cur: AccessibilityNodeInfo? = b
+            var depth = 0
+            while (cur != null && depth < 8) {
+                if (cur.isClickable) {
+                    if (cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                    break
+                }
+                cur = cur.parent
+                depth++
+            }
+            val rr = Rect()
+            b.getBoundsInScreen(rr)
+            tapAt(rr.centerX().toFloat(), rr.centerY().toFloat())
+            return true
+        } catch (e: Exception) {
+            return false
+        }
+    }
+
+    fun clickByText(text: String): Boolean {
+        return clickBest(text)
     }
 
     /** Jahan cursor hai (ya pehla likhne wala dabba) wahan text likho */
@@ -171,21 +260,51 @@ class JarvisAccessibilityService : AccessibilityService() {
     private fun collectText(n: AccessibilityNodeInfo?, sb: StringBuilder, depth: Int) {
         if (n == null || depth > 40 || sb.length > 5000) return
         if (!n.isVisibleToUser) return
-        var line = ""
-        val t = n.text
-        if (t != null && t.toString().isNotBlank()) {
-            line = t.toString().trim()
-        } else {
-            val d = n.contentDescription
-            if (d != null && d.toString().isNotBlank()) {
-                line = d.toString().trim()
-            }
-        }
+        val line = labelOf(n)
         if (line.isNotEmpty() && !sb.endsWith(line + "\n")) {
             sb.append(line).append("\n")
         }
         for (i in 0 until n.childCount) {
             collectText(n.getChild(i), sb, depth + 1)
         }
+    }
+
+    /** Screenshot lo (sirf background thread se bulao). Na mile to null */
+    fun screenshotBlocking(): Bitmap? {
+        if (Build.VERSION.SDK_INT < 30) return null
+        val latch = CountDownLatch(1)
+        val holder = arrayOfNulls<Bitmap>(1)
+        try {
+            takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                ContextCompat.getMainExecutor(this),
+                object : AccessibilityService.TakeScreenshotCallback {
+                    override fun onSuccess(result: AccessibilityService.ScreenshotResult) {
+                        try {
+                            val hw = Bitmap.wrapHardwareBuffer(
+                                result.hardwareBuffer, result.colorSpace
+                            )
+                            if (hw != null) {
+                                holder[0] = hw.copy(Bitmap.Config.ARGB_8888, false)
+                            }
+                            result.hardwareBuffer.close()
+                        } catch (e: Exception) {
+                        }
+                        latch.countDown()
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        latch.countDown()
+                    }
+                }
+            )
+        } catch (e: Exception) {
+            return null
+        }
+        try {
+            latch.await(5, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+        }
+        return holder[0]
     }
 }
