@@ -15,11 +15,11 @@ import java.util.concurrent.TimeUnit
 
 object GeminiClient {
 
-    // Pehla model busy ya dheema ho to agla try hoga
+    // Pehle zyada free limit wale Lite models, sabse aakhir mein 20/din wala model
     private val MODELS = listOf(
-        "gemini-3.8-flash",
         "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite"
+        "gemini-3.1-flash-lite",
+        "gemini-3.8-flash"
     )
 
     private const val SYSTEM_PROMPT =
@@ -45,6 +45,15 @@ object GeminiClient {
         "Agar user ke message ke saath [SCREEN TEXT] diya ho, to usi text ko padhkar " +
         "saaf aur chhote shabdon mein sunao ya samjhao. " +
         "Baaki sab baat par normal pyaar se baat karo. "
+
+    private const val LIMIT_MSG =
+        "Jaan, aaj ka free limit khatam ho gaya 🥺 Thodi der baad ya kal dopahar tak ruk jao, phir baat karte hain!"
+
+    private val webWords = listOf(
+        "search", "सर्च", "news", "न्यूज", "समाचार", "samachar", "mausam", "मौसम",
+        "weather", "score", "स्कोर", "ढूंढ", "ढूँढ", "dhundo", "latest", "aaj ka",
+        "आज का", "price", "daam", "दाम"
+    )
 
     private class Result(
         val ok: Boolean,
@@ -100,6 +109,14 @@ object GeminiClient {
         .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    private fun needsWeb(text: String): Boolean {
+        val t = text.lowercase()
+        for (w in webWords) {
+            if (t.contains(w)) return true
+        }
+        return false
+    }
+
     /** Phone ke commands, search aur screen padhna samajhne wala smart jawab */
     fun askSmart(context: Context, apiKey: String, history: List<Pair<String, String>>): String {
         val apps = CommandHandler.installedApps(context)
@@ -114,20 +131,25 @@ object GeminiClient {
         val prompt = SYSTEM_PROMPT + COMMAND_RULES +
             "Phone mein installed apps ki list: " + names.toString()
 
-        // Agar user screen padhne ko keh raha hai to screen ka text saath bhejo
         var hist: List<Pair<String, String>> = history
+        var wantSearch = false
         val last = history.lastOrNull()
-        if (last != null && last.first == "user" && CommandHandler.wantsScreen(last.second)) {
-            val svc = JarvisAccessibilityService.instance
-            val screen = if (svc != null) svc.readScreenText() else ""
-            val shown = if (screen.isBlank()) "(screen par koi text nahi mila)" else screen
-            val q = last.second + "\n\n[SCREEN TEXT]\n" + shown
-            val copy = ArrayList<Pair<String, String>>(history)
-            copy[copy.size - 1] = Pair("user", q)
-            hist = copy
+        if (last != null && last.first == "user") {
+            wantSearch = needsWeb(last.second)
+            // Agar user screen padhne ko keh raha hai to screen ka text saath bhejo
+            if (CommandHandler.wantsScreen(last.second)) {
+                val svc = JarvisAccessibilityService.instance
+                val screen = if (svc != null) svc.readScreenText() else ""
+                val shown = if (screen.isBlank()) "(screen par koi text nahi mila)" else screen
+                val q = last.second + "\n\n[SCREEN TEXT]\n" + shown
+                val copy = ArrayList<Pair<String, String>>(history)
+                copy[copy.size - 1] = Pair("user", q)
+                hist = copy
+                wantSearch = false
+            }
         }
 
-        val reply = askWith(apiKey, hist, prompt, true)
+        val reply = askWith(apiKey, hist, prompt, wantSearch)
         return CommandHandler.interpret(context, reply)
     }
 
@@ -140,13 +162,21 @@ object GeminiClient {
         apiKey: String,
         history: List<Pair<String, String>>,
         prompt: String,
-        useSearch: Boolean
+        wantSearch: Boolean
     ): String {
         if (apiKey.isBlank()) {
             return "Pehle Settings mein apni Gemini API Key daalo 🔑"
         }
-        val body = buildBody(history, prompt, useSearch)
         val start = System.currentTimeMillis()
+
+        // Search chahiye to ek baar search ke saath try karo, na chale to bina search ke
+        if (wantSearch) {
+            val withTools = buildBody(history, prompt, true)
+            val r0 = call(apiKey, MODELS[0], withTools)
+            if (r0.ok) return r0.text
+        }
+
+        val body = buildBody(history, prompt, false)
         var lastError = "Jawab nahi aaya, dobara try karo 🙏"
         outer@ for (model in MODELS) {
             for (attempt in 1..2) {
@@ -154,20 +184,17 @@ object GeminiClient {
                 val r = call(apiKey, model, body)
                 if (r.ok) return r.text
                 lastError = r.text
+                // Is model ka limit khatam: seedha agle model par jao
+                if (r.code == 429) break
                 if (!r.retry) return r.text
-                // Search ka quota khatam ho to seedha bina search ke try karo
-                if (useSearch && r.code == 429) break@outer
                 try {
                     Thread.sleep(600)
                 } catch (e: Exception) {
                 }
             }
         }
-        if (useSearch) {
-            val plainBody = buildBody(history, prompt, false)
-            val r = call(apiKey, MODELS[0], plainBody)
-            if (r.ok) return r.text
-            lastError = r.text
+        if (lastError.contains("quota", true) || lastError.contains("RESOURCE_EXHAUSTED")) {
+            return LIMIT_MSG
         }
         return lastError
     }
