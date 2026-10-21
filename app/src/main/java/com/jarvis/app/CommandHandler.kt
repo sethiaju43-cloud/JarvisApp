@@ -72,6 +72,20 @@ object CommandHandler {
         return s
     }
 
+    /** Hindi ya English, kisi bhi ank ko English ank (0-9) mein badlo, '+' rakho */
+    private fun asciiDigits(s: String): String {
+        val sb = StringBuilder()
+        for (c in s) {
+            val d = Character.digit(c, 10)
+            if (d >= 0) {
+                sb.append(d)
+            } else if (c == '+') {
+                sb.append(c)
+            }
+        }
+        return sb.toString()
+    }
+
     /** Kya user screen padhne / dekhne ko keh raha hai? (vaakya kitna bhi lamba ho) */
     fun wantsScreen(raw: String): Boolean {
         val t = normalize(raw)
@@ -228,18 +242,39 @@ object CommandHandler {
 
     // ---------- Call ----------
     private fun callTarget(context: Context, target: String): String {
-        val digits = target.filter { it.isDigit() || it == '+' }
+        // 1) Number bola gaya (Hindi ya English ank, dono chalenge)
+        val digits = asciiDigits(target)
         if (digits.count { it.isDigit() } >= 5) {
             return placeCall(context, digits, digits)
         }
-        if (!hasContacts(context)) {
-            return "Naam se call karne ke liye Permissions mein Contacts allow karo 📒"
+
+        // 2) Naam hai to Contacts mein dhundo (agar permission hai)
+        if (hasContacts(context)) {
+            for (n in target.split("|")) {
+                val c = findContact(context, n.trim())
+                if (c != null) return placeCall(context, c.second, c.first)
+            }
         }
-        for (n in target.split("|")) {
-            val c = findContact(context, n.trim())
-            if (c != null) return placeCall(context, c.second, c.first)
+
+        // 3) Screen par likha number dhundo (jaise dialer mein)
+        val fromScreen = numberFromScreen()
+        if (fromScreen != null) {
+            return placeCall(context, fromScreen, fromScreen)
+        }
+
+        if (!hasContacts(context)) {
+            return "Mujhe number nahi mila. Number bolkar ya screen par likhkar bolo 📞 " +
+                "(Naam se call ke liye Contacts permission abhi jodni baaki hai)"
         }
         return "'" + target + "' naam ka contact nahi mila 😕"
+    }
+
+    private fun numberFromScreen(): String? {
+        val svc = JarvisAccessibilityService.instance ?: return null
+        val text = svc.readScreenText()
+        val m = Regex("[+0-9०-९][0-9०-९ \\-]{7,}[0-9०-९]").find(text) ?: return null
+        val d = asciiDigits(m.value)
+        return if (d.count { it.isDigit() } >= 7) d else null
     }
 
     private fun placeCall(context: Context, number: String, label: String): String {
