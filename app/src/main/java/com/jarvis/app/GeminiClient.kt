@@ -1,5 +1,6 @@
 package com.jarvis.app
 
+import android.content.Context
 import okhttp3.Dns
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
@@ -28,6 +29,16 @@ object GeminiClient {
         "Jawab sirf 1 ya 2 chhote, mithe vaakya mein rakho. " +
         "Kabhi kabhi ek emoji lagao. " +
         "Agar user udaas ho to pyaar se haal poochho aur himmat do."
+
+    private const val COMMAND_RULES =
+        " Tum user ke phone ko control bhi kar sakti ho. " +
+        "Agar user kisi app ko kholne ya chalane ko kahe (kisi bhi bhasha ya akshar mein), " +
+        "to sirf ek line mein aise jawab do: OPEN: <app ka naam, neeche di gayi list se bilkul waisa hi>. " +
+        "Agar user peeche jaana, home par jaana, recent apps dikhana ya scroll karne ko kahe, " +
+        "to sirf ek line mein jawab do: ACTION: BACK ya ACTION: HOME ya ACTION: RECENTS " +
+        "ya ACTION: SCROLL_DOWN ya ACTION: SCROLL_UP. " +
+        "Aise command par koi aur shabd mat likho. " +
+        "Baaki sab baat par normal pyaar se baat karo. "
 
     private class Result(
         val ok: Boolean,
@@ -83,12 +94,37 @@ object GeminiClient {
         .callTimeout(25, TimeUnit.SECONDS)
         .build()
 
-    /** history: Pair(role, text). role = "user" ya "model" */
+    /** Phone ke commands (app kholna, back, home) samajhne wala smart jawab */
+    fun askSmart(context: Context, apiKey: String, history: List<Pair<String, String>>): String {
+        val apps = CommandHandler.installedApps(context)
+        val names = StringBuilder()
+        var count = 0
+        for (a in apps) {
+            if (count >= 250) break
+            if (count > 0) names.append(", ")
+            names.append(a.first)
+            count++
+        }
+        val prompt = SYSTEM_PROMPT + COMMAND_RULES +
+            "Phone mein installed apps ki list: " + names.toString()
+        val reply = askWith(apiKey, history, prompt)
+        return CommandHandler.interpret(context, reply)
+    }
+
+    /** Sirf baat-cheet (phone control ke bina) */
     fun ask(apiKey: String, history: List<Pair<String, String>>): String {
+        return askWith(apiKey, history, SYSTEM_PROMPT)
+    }
+
+    private fun askWith(
+        apiKey: String,
+        history: List<Pair<String, String>>,
+        prompt: String
+    ): String {
         if (apiKey.isBlank()) {
             return "Pehle Settings mein apni Gemini API Key daalo 🔑"
         }
-        val body = buildBody(history)
+        val body = buildBody(history, prompt)
         val start = System.currentTimeMillis()
         var lastError = "Jawab nahi aaya, dobara try karo 🙏"
         for (model in MODELS) {
@@ -107,7 +143,7 @@ object GeminiClient {
         return lastError
     }
 
-    private fun buildBody(history: List<Pair<String, String>>): JSONObject {
+    private fun buildBody(history: List<Pair<String, String>>, prompt: String): JSONObject {
         val contents = JSONArray()
         for ((role, text) in history) {
             contents.put(
@@ -126,7 +162,7 @@ object GeminiClient {
             .put(
                 "systemInstruction",
                 JSONObject().put(
-                    "parts", JSONArray().put(JSONObject().put("text", SYSTEM_PROMPT))
+                    "parts", JSONArray().put(JSONObject().put("text", prompt))
                 )
             )
             .put("generationConfig", gen)
