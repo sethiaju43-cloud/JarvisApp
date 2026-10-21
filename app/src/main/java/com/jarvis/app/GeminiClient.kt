@@ -26,7 +26,9 @@ object GeminiClient {
         "Tumhara naam Jarvi hai. Tum user ki pyaari, caring, cute dost ho " +
         "aur user ko pyaar se 'jaan' bulati ho. " +
         "User jis bhasha mein baat kare (Hindi, Hinglish ya English) usi mein jawab do. " +
-        "Jawab sirf 1 ya 2 chhote, mithe vaakya mein rakho. " +
+        "Normal baat mein sirf 1 ya 2 chhote, mithe vaakya rakho. " +
+        "Search ya screen padhne ke jawab mein zarurat ho to 4 ya 5 vaakya tak bolo. " +
+        "Star, hash jaise symbols ya lambi list mat likho, kyunki jawab bolkar sunaya jata hai. " +
         "Kabhi kabhi ek emoji lagao. " +
         "Agar user udaas ho to pyaar se haal poochho aur himmat do."
 
@@ -38,6 +40,10 @@ object GeminiClient {
         "to sirf ek line mein jawab do: ACTION: BACK ya ACTION: HOME ya ACTION: RECENTS " +
         "ya ACTION: SCROLL_DOWN ya ACTION: SCROLL_UP. " +
         "Aise command par koi aur shabd mat likho. " +
+        "Agar sawaal taaza jaankari ka ho (news, mausam, score, daam, kisi cheez ke baare mein search), " +
+        "to Google Search se dekhkar sahi jawab do. " +
+        "Agar user ke message ke saath [SCREEN TEXT] diya ho, to usi text ko padhkar " +
+        "saaf aur chhote shabdon mein sunao ya samjhao. " +
         "Baaki sab baat par normal pyaar se baat karo. "
 
     private class Result(
@@ -90,11 +96,11 @@ object GeminiClient {
     private val client = OkHttpClient.Builder()
         .dns(smartDns)
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(25, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    /** Phone ke commands (app kholna, back, home) samajhne wala smart jawab */
+    /** Phone ke commands, search aur screen padhna samajhne wala smart jawab */
     fun askSmart(context: Context, apiKey: String, history: List<Pair<String, String>>): String {
         val apps = CommandHandler.installedApps(context)
         val names = StringBuilder()
@@ -107,43 +113,70 @@ object GeminiClient {
         }
         val prompt = SYSTEM_PROMPT + COMMAND_RULES +
             "Phone mein installed apps ki list: " + names.toString()
-        val reply = askWith(apiKey, history, prompt)
+
+        // Agar user screen padhne ko keh raha hai to screen ka text saath bhejo
+        var hist: List<Pair<String, String>> = history
+        val last = history.lastOrNull()
+        if (last != null && last.first == "user" && CommandHandler.wantsScreen(last.second)) {
+            val svc = JarvisAccessibilityService.instance
+            val screen = if (svc != null) svc.readScreenText() else ""
+            val shown = if (screen.isBlank()) "(screen par koi text nahi mila)" else screen
+            val q = last.second + "\n\n[SCREEN TEXT]\n" + shown
+            val copy = ArrayList<Pair<String, String>>(history)
+            copy[copy.size - 1] = Pair("user", q)
+            hist = copy
+        }
+
+        val reply = askWith(apiKey, hist, prompt, true)
         return CommandHandler.interpret(context, reply)
     }
 
     /** Sirf baat-cheet (phone control ke bina) */
     fun ask(apiKey: String, history: List<Pair<String, String>>): String {
-        return askWith(apiKey, history, SYSTEM_PROMPT)
+        return askWith(apiKey, history, SYSTEM_PROMPT, false)
     }
 
     private fun askWith(
         apiKey: String,
         history: List<Pair<String, String>>,
-        prompt: String
+        prompt: String,
+        useSearch: Boolean
     ): String {
         if (apiKey.isBlank()) {
             return "Pehle Settings mein apni Gemini API Key daalo 🔑"
         }
-        val body = buildBody(history, prompt)
+        val body = buildBody(history, prompt, useSearch)
         val start = System.currentTimeMillis()
         var lastError = "Jawab nahi aaya, dobara try karo 🙏"
-        for (model in MODELS) {
+        outer@ for (model in MODELS) {
             for (attempt in 1..2) {
-                if (System.currentTimeMillis() - start > 70000) return lastError
+                if (System.currentTimeMillis() - start > 70000) break@outer
                 val r = call(apiKey, model, body)
                 if (r.ok) return r.text
                 lastError = r.text
                 if (!r.retry) return r.text
+                // Search ka quota khatam ho to seedha bina search ke try karo
+                if (useSearch && r.code == 429) break@outer
                 try {
                     Thread.sleep(600)
                 } catch (e: Exception) {
                 }
             }
         }
+        if (useSearch) {
+            val plainBody = buildBody(history, prompt, false)
+            val r = call(apiKey, MODELS[0], plainBody)
+            if (r.ok) return r.text
+            lastError = r.text
+        }
         return lastError
     }
 
-    private fun buildBody(history: List<Pair<String, String>>, prompt: String): JSONObject {
+    private fun buildBody(
+        history: List<Pair<String, String>>,
+        prompt: String,
+        useSearch: Boolean
+    ): JSONObject {
         val contents = JSONArray()
         for ((role, text) in history) {
             contents.put(
@@ -157,7 +190,7 @@ object GeminiClient {
             "thinkingConfig",
             JSONObject().put("thinkingLevel", "low")
         )
-        return JSONObject()
+        val body = JSONObject()
             .put("contents", contents)
             .put(
                 "systemInstruction",
@@ -166,6 +199,13 @@ object GeminiClient {
                 )
             )
             .put("generationConfig", gen)
+        if (useSearch) {
+            body.put(
+                "tools",
+                JSONArray().put(JSONObject().put("google_search", JSONObject()))
+            )
+        }
+        return body
     }
 
     private fun call(apiKey: String, model: String, body: JSONObject): Result {
@@ -200,11 +240,17 @@ object GeminiClient {
                 }
             }
 
-            // Agar model ko 'low thinking' wali setting pasand na aayi to bina uske try karo
-            if (result.code == 400 && body.has("generationConfig")) {
+            // Agar model ko koi setting pasand na aayi to ek-ek hata kar dobara try karo
+            if (result.code == 400) {
                 val plain = JSONObject(body.toString())
-                plain.remove("generationConfig")
-                return call(apiKey, model, plain)
+                if (plain.has("generationConfig")) {
+                    plain.remove("generationConfig")
+                    return call(apiKey, model, plain)
+                }
+                if (plain.has("tools")) {
+                    plain.remove("tools")
+                    return call(apiKey, model, plain)
+                }
             }
             return result
         } catch (e: Exception) {
