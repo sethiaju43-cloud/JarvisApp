@@ -1,11 +1,15 @@
 package com.jarvis.app
 
+import okhttp3.Dns
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.dnsoverhttps.DnsOverHttps
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.InetAddress
 import java.util.concurrent.TimeUnit
 
 object GeminiClient {
@@ -27,9 +31,51 @@ object GeminiClient {
 
     private class Result(val ok: Boolean, val text: String, val retry: Boolean)
 
+    // ---- DNS ki dikkat ka ilaaj: pehle Google DNS, phir phone ka DNS ----
+    private var cacheHost = ""
+    private var cacheAddrs: List<InetAddress> = emptyList()
+    private var cacheTime = 0L
+
+    private val bootstrapClient = OkHttpClient.Builder()
+        .connectTimeout(6, TimeUnit.SECONDS)
+        .readTimeout(6, TimeUnit.SECONDS)
+        .build()
+
+    private val doh: DnsOverHttps = DnsOverHttps.Builder()
+        .client(bootstrapClient)
+        .url("https://dns.google/dns-query".toHttpUrl())
+        .bootstrapDnsHosts(
+            InetAddress.getByAddress(byteArrayOf(8, 8, 8, 8)),
+            InetAddress.getByAddress(byteArrayOf(8, 8, 4, 4))
+        )
+        .build()
+
+    private val smartDns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            val now = System.currentTimeMillis()
+            if (hostname == cacheHost && cacheAddrs.isNotEmpty() && now - cacheTime < 300000) {
+                return cacheAddrs
+            }
+            var res: List<InetAddress> = emptyList()
+            try {
+                res = doh.lookup(hostname)
+            } catch (e: Exception) {
+            }
+            if (res.isEmpty()) {
+                res = Dns.SYSTEM.lookup(hostname)
+            }
+            cacheHost = hostname
+            cacheAddrs = res
+            cacheTime = now
+            return res
+        }
+    }
+
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
+        .dns(smartDns)
+        .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(40, TimeUnit.SECONDS)
         .build()
 
     /** history: Pair(role, text). role = "user" ya "model" */
@@ -38,15 +84,17 @@ object GeminiClient {
             return "Pehle Settings mein apni Gemini API Key daalo 🔑"
         }
         val body = buildBody(history)
+        val start = System.currentTimeMillis()
         var lastError = "Jawab nahi aaya, dobara try karo 🙏"
         for (model in MODELS) {
             for (attempt in 1..2) {
+                if (System.currentTimeMillis() - start > 70000) return lastError
                 val r = call(apiKey, model, body)
                 if (r.ok) return r.text
                 lastError = r.text
                 if (!r.retry) return r.text
                 try {
-                    Thread.sleep(1200)
+                    Thread.sleep(800)
                 } catch (e: Exception) {
                 }
             }
