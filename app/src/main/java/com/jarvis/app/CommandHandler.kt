@@ -44,6 +44,9 @@ object CommandHandler {
         "बैक" to "back", "पीछे" to "peeche", "होम" to "home",
         "स्क्रॉल" to "scroll", "स्क्रोल" to "scroll", "क्लिक" to "click", "टैप" to "tap",
         "नीचे" to "neeche", "ऊपर" to "upar", "रिसेंट" to "recent",
+        "रहो" to "raho", "लगातार" to "lagatar", "बार बार" to "baar baar",
+        "रुको" to "ruko", "रुक" to "ruko", "स्टॉप" to "stop", "बस करो" to "bas karo",
+        "भूल जाओ" to "bhool jao", "भूल जा" to "bhool jao", "भूल" to "bhool",
         "जार्वी" to "jarvi", "जारवी" to "jarvi", "जार्विस" to "jarvis",
         "जर्विस" to "jarvis", "जारविस" to "jarvis"
     )
@@ -61,6 +64,8 @@ object CommandHandler {
         "पर", "में", "का", "की", "के", "को", "करो", "कर", "दो", "हे", "मेरे", "लिए",
         "प्लीज", "जरा", "ज़रा"
     )
+
+    private var scrollToken = 0
 
     private fun normalize(raw: String): String {
         var s = raw.lowercase().trim()
@@ -101,8 +106,27 @@ object CommandHandler {
 
     /** Seedha command mila to reply lautao, nahi mila to null (tab Gemini samjhega) */
     fun handle(context: Context, raw: String): String? {
+        val r = handleInner(context, raw)
+        if (r != null) GeminiClient.noteLocal(context, raw, r)
+        return r
+    }
+
+    private fun handleInner(context: Context, raw: String): String? {
         val t = normalize(raw)
-        val wordCount = t.split(" ").filter { it.isNotBlank() }.size
+        val words = t.split(" ").filter { it.isNotBlank() }
+        val wordCount = words.size
+
+        // Sab kuch bhulwana
+        if (wordCount <= 5 && t.contains("bhool jao")) {
+            GeminiClient.clearMemory(context)
+            return "Theek hai jaan, sab bhool gayi 🙈"
+        }
+
+        // Scroll rokna
+        if (wordCount <= 4 && words.any { it == "ruko" || it == "stop" || it == "bas" }) {
+            scrollToken++
+            return "Ruk gayi 🛑"
+        }
 
         // YouTube ya Google par search
         if (t.contains("search") && wordCount <= 12) {
@@ -113,7 +137,7 @@ object CommandHandler {
             }
         }
 
-        // App kholo
+        // App kholo (sirf chhota command, jaise "YouTube kholo")
         if ((t.contains("khol") || t.startsWith("open ")) && wordCount <= 8) {
             val name = cleanName(t)
             if (name.contains("camera")) {
@@ -124,7 +148,7 @@ object CommandHandler {
             }
             val r = openApp(context, name)
             if (r != null) return r
-            // Nahi mila to Gemini samjhega
+            // Nahi mila ya lamba vaakya hai to Gemini samjhega
         }
 
         // Screen padhne wale sawaal Gemini ke paas jayenge (screen ka text saath mein)
@@ -150,11 +174,10 @@ object CommandHandler {
                     svc.openRecents(); "Recent apps khol diye!"
                 }
                 t.contains("scroll") || t.contains("neeche") || t.contains("upar") -> {
-                    if (t.contains("upar") || t.contains(" up")) {
-                        svc.scrollUp(); "Upar scroll kar diya!"
-                    } else {
-                        svc.scrollDown(); "Neeche scroll kar diya!"
-                    }
+                    val up = t.contains("upar") || t.contains(" up")
+                    val n = scrollCount(t)
+                    repeatScroll(up, n)
+                    (if (up) "Upar" else "Neeche") + " scroll kar rahi hun 📜"
                 }
                 t.contains("click") || t.contains("tap") -> {
                     val name = cleanName(t)
@@ -170,6 +193,33 @@ object CommandHandler {
             }
         }
         return null
+    }
+
+    private fun scrollCount(t: String): Int {
+        if (t.contains("raho") || t.contains("lagatar") || t.contains("baar baar")) return 8
+        val m = Regex("[0-9०-९]+").find(t)
+        if (m != null) {
+            val n = asciiDigits(m.value).toIntOrNull() ?: 1
+            return n.coerceIn(1, 12)
+        }
+        return 1
+    }
+
+    private fun repeatScroll(up: Boolean, n: Int) {
+        scrollToken++
+        val my = scrollToken
+        val h = Handler(Looper.getMainLooper())
+        var k = 0
+        val r = object : Runnable {
+            override fun run() {
+                if (my != scrollToken) return
+                val svc = JarvisAccessibilityService.instance ?: return
+                if (up) svc.scrollUp() else svc.scrollDown()
+                k++
+                if (k < n) h.postDelayed(this, 1300)
+            }
+        }
+        h.post(r)
     }
 
     /** Gemini ka jawab dekho: usme OPEN: ya ACTION: ho to kaam karo, warna jawab waisa hi lautao */
@@ -190,6 +240,11 @@ object CommandHandler {
 
     private fun runAction(context: Context, line: String): String {
         val up = line.uppercase()
+
+        if (up.startsWith("STOP")) {
+            scrollToken++
+            return "Ruk gayi 🛑"
+        }
 
         // Call: Accessibility ki zarurat nahi
         if (up.startsWith("CALL")) {
@@ -220,6 +275,13 @@ object CommandHandler {
             }
         }
 
+        if (up.contains("SCROLL")) {
+            val upDir = up.contains("UP")
+            val n = (Regex("[0-9]+").find(up)?.value?.toIntOrNull() ?: 1).coerceIn(1, 12)
+            repeatScroll(upDir, n)
+            return (if (upDir) "Upar" else "Neeche") + " scroll kar rahi hun 📜"
+        }
+
         return when {
             up.contains("BACK") -> {
                 svc.goBack(); "Back kar diya!"
@@ -229,12 +291,6 @@ object CommandHandler {
             }
             up.contains("RECENT") -> {
                 svc.openRecents(); "Recent apps khol diye!"
-            }
-            up.contains("SCROLL_UP") -> {
-                svc.scrollUp(); "Upar scroll kar diya!"
-            }
-            up.contains("SCROLL") -> {
-                svc.scrollDown(); "Neeche scroll kar diya!"
             }
             else -> "Ye kaam mujhe samajh nahi aaya 😕"
         }
@@ -346,7 +402,11 @@ object CommandHandler {
         return out
     }
 
-    private fun findByLabel(context: Context, wanted: String): Pair<String, String>? {
+    private fun findByLabel(
+        context: Context,
+        wanted: String,
+        minScore: Int
+    ): Pair<String, String>? {
         val w = wanted.lowercase().replace(" ", "")
         if (w.length < 2) return null
         var best: Pair<String, String>? = null
@@ -366,11 +426,11 @@ object CommandHandler {
                 bestScore = score
             }
         }
-        return best
+        return if (bestScore >= minScore) best else null
     }
 
     fun openByLabel(context: Context, wanted: String): String {
-        val app = findByLabel(context, wanted)
+        val app = findByLabel(context, wanted, 2)
         if (app != null) {
             val i = context.packageManager.getLaunchIntentForPackage(app.second)
             if (i != null) return launchIntent(context, i, app.first + " khol diya! 😊")
@@ -409,6 +469,8 @@ object CommandHandler {
 
     private fun openApp(context: Context, name: String): String? {
         if (name.isBlank()) return null
+        // Lamba vaakya (video, kaam waghera) ho to ye "app kholo" nahi hai, Gemini samjhega
+        if (name.split(" ").filter { it.isNotBlank() }.size > 2) return null
         val pm = context.packageManager
 
         val pkg = knownApps.entries.firstOrNull { name.contains(it.key) }?.value
@@ -417,7 +479,7 @@ object CommandHandler {
             if (i != null) return launchIntent(context, i, name + " khol diya!")
         }
 
-        val found = findByLabel(context, name)
+        val found = findByLabel(context, name, 3)
         if (found != null) {
             val i = pm.getLaunchIntentForPackage(found.second)
             if (i != null) return launchIntent(context, i, found.first + " khol diya!")
