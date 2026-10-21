@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit
 
 object GeminiClient {
 
-    // Pehla model busy ho to agla try hoga
+    // Pehla model busy ya dheema ho to agla try hoga
     private val MODELS = listOf(
         "gemini-3.8-flash",
         "gemini-3.5-flash-lite",
@@ -29,7 +29,12 @@ object GeminiClient {
         "Kabhi kabhi ek emoji lagao. " +
         "Agar user udaas ho to pyaar se haal poochho aur himmat do."
 
-    private class Result(val ok: Boolean, val text: String, val retry: Boolean)
+    private class Result(
+        val ok: Boolean,
+        val text: String,
+        val retry: Boolean,
+        val code: Int
+    )
 
     // ---- DNS ki dikkat ka ilaaj: pehle Google DNS, phir phone ka DNS ----
     private var cacheHost = ""
@@ -73,9 +78,9 @@ object GeminiClient {
 
     private val client = OkHttpClient.Builder()
         .dns(smartDns)
-        .connectTimeout(12, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(40, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
         .build()
 
     /** history: Pair(role, text). role = "user" ya "model" */
@@ -94,7 +99,7 @@ object GeminiClient {
                 lastError = r.text
                 if (!r.retry) return r.text
                 try {
-                    Thread.sleep(800)
+                    Thread.sleep(600)
                 } catch (e: Exception) {
                 }
             }
@@ -111,6 +116,11 @@ object GeminiClient {
                     .put("parts", JSONArray().put(JSONObject().put("text", text)))
             )
         }
+        // Kam sochkar jaldi jawab do
+        val gen = JSONObject().put(
+            "thinkingConfig",
+            JSONObject().put("thinkingLevel", "low")
+        )
         return JSONObject()
             .put("contents", contents)
             .put(
@@ -119,6 +129,7 @@ object GeminiClient {
                     "parts", JSONArray().put(JSONObject().put("text", SYSTEM_PROMPT))
                 )
             )
+            .put("generationConfig", gen)
     }
 
     private fun call(apiKey: String, model: String, body: JSONObject): Result {
@@ -136,9 +147,9 @@ object GeminiClient {
                 if (resp.isSuccessful) {
                     val text = parse(raw)
                     if (text.isNotBlank()) {
-                        Result(true, text, false)
+                        Result(true, text, false, 200)
                     } else {
-                        Result(false, "Jawab khali aaya, dobara try karo 🙏", true)
+                        Result(false, "Jawab khali aaya, dobara try karo 🙏", true, 200)
                     }
                 } else {
                     var msg = "Error " + resp.code
@@ -149,12 +160,19 @@ object GeminiClient {
                     val c = resp.code
                     val retry = c == 429 || c == 500 || c == 502 ||
                         c == 503 || c == 504 || c == 404
-                    Result(false, "Gemini error: " + msg, retry)
+                    Result(false, "Gemini error: " + msg, retry, c)
                 }
+            }
+
+            // Agar model ko 'low thinking' wali setting pasand na aayi to bina uske try karo
+            if (result.code == 400 && body.has("generationConfig")) {
+                val plain = JSONObject(body.toString())
+                plain.remove("generationConfig")
+                return call(apiKey, model, plain)
             }
             return result
         } catch (e: Exception) {
-            return Result(false, "Internet ya API mein dikkat hai: " + e.message, true)
+            return Result(false, "Internet ya API mein dikkat hai: " + e.message, true, 0)
         }
     }
 
