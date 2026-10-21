@@ -27,6 +27,11 @@ class JarvisAccessibilityService : AccessibilityService() {
         return super.onUnbind(intent)
     }
 
+    override fun onDestroy() {
+        instance = null
+        super.onDestroy()
+    }
+
     fun goBack() = performGlobalAction(GLOBAL_ACTION_BACK)
 
     fun goHome() = performGlobalAction(GLOBAL_ACTION_HOME)
@@ -64,36 +69,80 @@ class JarvisAccessibilityService : AccessibilityService() {
         dispatchGesture(g, null, null)
     }
 
+    private fun activeRoot(): AccessibilityNodeInfo? {
+        try {
+            val r = rootInActiveWindow
+            if (r != null) return r
+            for (w in windows) {
+                if (w.isActive) {
+                    val x = w.root
+                    if (x != null) return x
+                }
+            }
+        } catch (e: Exception) {
+        }
+        return null
+    }
+
+    /** Abhi jo app screen par hai uska package naam */
+    fun currentPackage(): String {
+        return try {
+            activeRoot()?.packageName?.toString() ?: ""
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    /** Abhi jo app screen par hai uska naam (jaise WhatsApp) */
+    fun currentAppLabel(): String {
+        val pkg = currentPackage()
+        if (pkg.isEmpty()) return ""
+        if (pkg == packageName) return "Jarvis"
+        return try {
+            val pm = packageManager
+            pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+        } catch (e: Exception) {
+            pkg
+        }
+    }
+
     /** Screen par jis text ka button/item dikhe use click karo */
     fun clickByText(text: String): Boolean {
-        val root = rootInActiveWindow ?: return false
-        val nodes = root.findAccessibilityNodeInfosByText(text)
-        for (n in nodes) {
-            var cur: AccessibilityNodeInfo? = n
-            while (cur != null) {
-                if (cur.isClickable) {
-                    cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    return true
+        try {
+            val root = activeRoot() ?: return false
+            val nodes = root.findAccessibilityNodeInfosByText(text)
+            for (n in nodes) {
+                var cur: AccessibilityNodeInfo? = n
+                while (cur != null) {
+                    if (cur.isClickable) {
+                        cur.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                        return true
+                    }
+                    cur = cur.parent
                 }
-                cur = cur.parent
             }
+        } catch (e: Exception) {
         }
         return false
     }
 
     /** Jahan cursor hai (ya pehla likhne wala dabba) wahan text likho */
     fun typeText(text: String): Boolean {
-        val root = rootInActiveWindow ?: return false
-        var target: AccessibilityNodeInfo? = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
-        if (target == null || !target.isEditable) {
-            target = findEditable(root)
+        try {
+            val root = activeRoot() ?: return false
+            var target: AccessibilityNodeInfo? = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+            if (target == null || !target.isEditable) {
+                target = findEditable(root)
+            }
+            if (target == null) return false
+            val args = Bundle()
+            args.putCharSequence(
+                AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text
+            )
+            return target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+        } catch (e: Exception) {
+            return false
         }
-        if (target == null) return false
-        val args = Bundle()
-        args.putCharSequence(
-            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text
-        )
-        return target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
     }
 
     private fun findEditable(n: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
@@ -106,32 +155,34 @@ class JarvisAccessibilityService : AccessibilityService() {
         return null
     }
 
-    /** Screen par jo kuch likha hai wo sab text lautao (sabse upar app ka naam) */
+    /** Screen par jo kuch dikh raha hai wo sab text lautao (sabse upar app ka naam) */
     fun readScreenText(): String {
-        val root = rootInActiveWindow ?: return ""
-        val sb = StringBuilder()
-        val pkg = root.packageName?.toString() ?: ""
-        var label = pkg
         try {
-            val pm = packageManager
-            label = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+            val root = activeRoot() ?: return ""
+            val sb = StringBuilder()
+            sb.append("APP: ").append(currentAppLabel()).append("\n")
+            collectText(root, sb, 0)
+            return sb.toString().trim()
         } catch (e: Exception) {
+            return ""
         }
-        sb.append("APP: ").append(label).append(" (").append(pkg).append(")\n")
-        collectText(root, sb, 0)
-        return sb.toString().trim()
     }
 
     private fun collectText(n: AccessibilityNodeInfo?, sb: StringBuilder, depth: Int) {
-        if (n == null || depth > 40 || sb.length > 6000) return
+        if (n == null || depth > 40 || sb.length > 5000) return
+        if (!n.isVisibleToUser) return
+        var line = ""
         val t = n.text
         if (t != null && t.toString().isNotBlank()) {
-            sb.append(t.toString().trim()).append("\n")
+            line = t.toString().trim()
         } else {
             val d = n.contentDescription
             if (d != null && d.toString().isNotBlank()) {
-                sb.append(d.toString().trim()).append("\n")
+                line = d.toString().trim()
             }
+        }
+        if (line.isNotEmpty() && !sb.endsWith(line + "\n")) {
+            sb.append(line).append("\n")
         }
         for (i in 0 until n.childCount) {
             collectText(n.getChild(i), sb, depth + 1)
