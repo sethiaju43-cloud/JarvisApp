@@ -16,7 +16,7 @@ object Poses {
 
     fun get(ctx: Context, name: String): Bitmap? {
         if (cache.containsKey(name)) return cache[name]
-        val id = ctx.resources.getIdentifier("jarvi_$name", "drawable", ctx.packageName)
+        val id = ctx.resources.getIdentifier("jarvi_" + name, "drawable", ctx.packageName)
         var bmp: Bitmap? = null
         if (id != 0) {
             val o = BitmapFactory.Options()
@@ -68,7 +68,9 @@ class PetAnimator(
         show("talk_closed")
     }
 
-    fun isSleeping() = sleeping
+    fun isSleeping(): Boolean {
+        return sleeping
+    }
 
     fun face(dir: Int) {
         val s = if (dir < 0) -1f else 1f
@@ -86,7 +88,8 @@ class PetAnimator(
         }
         cur = name
         back.animate().cancel()
-        pending?.let { front.setImageBitmap(it) }
+        val old = pending
+        if (old != null) front.setImageBitmap(old)
         pending = bmp
         back.setImageBitmap(bmp)
         back.alpha = 0f
@@ -97,4 +100,80 @@ class PetAnimator(
         }.start()
     }
 
-    private fun play(frames: List<String>, stepMs: Long, du
+    private fun play(
+        frames: List<String>,
+        gap: Long,
+        total: Long,
+        onDone: Runnable?
+    ) {
+        token++
+        val my = token
+        busy = true
+        sleeping = false
+        val t0 = System.currentTimeMillis()
+        var k = 0
+        val step = object : Runnable {
+            override fun run() {
+                if (my != token) return
+                if (System.currentTimeMillis() - t0 >= total) {
+                    busy = false
+                    show("talk_closed")
+                    onDone?.run()
+                    return
+                }
+                show(frames[k % frames.size])
+                k++
+                h.postDelayed(this, gap)
+            }
+        }
+        step.run()
+    }
+
+    fun talk(ms: Long = 3500, onDone: Runnable? = null) {
+        play(mouth, 120L, ms, onDone)
+    }
+
+    fun wave(ms: Long = 2600, onDone: Runnable? = null) {
+        play(listOf("wave_high", "wave_low"), 380L, ms, onDone)
+    }
+
+    fun walkFrames(ms: Long, onDone: Runnable? = null) {
+        play(listOf("walk_right", "walk_left"), 300L, ms, onDone)
+    }
+
+    fun namaste(ms: Long = 2000) {
+        play(listOf("namaste"), 400L, ms, null)
+    }
+
+    fun think(ms: Long = 2000) {
+        play(listOf("think"), 400L, ms, null)
+    }
+
+    fun laugh(ms: Long = 2200) {
+        play(listOf("laugh", "talk_wide"), 260L, ms, null)
+    }
+
+    fun sleep() {
+        token++
+        busy = true
+        sleeping = true
+        show("sleep")
+    }
+
+    fun wake() {
+        sleeping = false
+        busy = false
+        wave(2200)
+    }
+
+    fun stop() {
+        token++
+        busy = false
+    }
+
+    fun release() {
+        token++
+        h.removeCallbacksAndMessages(null)
+        for (a in animators) a.cancel()
+    }
+}
