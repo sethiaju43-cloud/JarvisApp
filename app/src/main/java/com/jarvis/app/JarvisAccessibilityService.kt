@@ -39,6 +39,13 @@ class JarvisAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
+    private fun nap(ms: Long) {
+        try {
+            Thread.sleep(ms)
+        } catch (e: Exception) {
+        }
+    }
+
     fun goBack() = performGlobalAction(GLOBAL_ACTION_BACK)
 
     fun goHome() = performGlobalAction(GLOBAL_ACTION_HOME)
@@ -70,6 +77,18 @@ class JarvisAccessibilityService : AccessibilityService() {
         path.moveTo(x, y)
         val g = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, 80))
+            .build()
+        dispatchGesture(g, null, null)
+    }
+
+    fun doubleTapAt(x: Float, y: Float) {
+        val p1 = Path()
+        p1.moveTo(x, y)
+        val p2 = Path()
+        p2.moveTo(x, y)
+        val g = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(p1, 0, 60))
+            .addStroke(GestureDescription.StrokeDescription(p2, 160, 60))
             .build()
         dispatchGesture(g, null, null)
     }
@@ -168,6 +187,7 @@ class JarvisAccessibilityService : AccessibilityService() {
                 if (!n.isVisibleToUser) continue
                 val label = labelOf(n).lowercase()
                 if (label.isEmpty()) continue
+                if (label.contains("exit") && !want.contains("exit")) continue
                 var score = 0
                 if (label == want) {
                     score = 100
@@ -213,6 +233,61 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     fun clickByText(text: String): Boolean {
         return clickBest(text)
+    }
+
+    // ---------- Video: bada karna aur aage-peeche karna ----------
+    /** Video wali jagah ka beech ka y (portrait mein upar, landscape mein beech) */
+    private fun playerCenterY(): Float {
+        val dm = resources.displayMetrics
+        if (dm.widthPixels > dm.heightPixels) return dm.heightPixels / 2f
+        try {
+            val root = activeRoot()
+            if (root != null) {
+                val all = ArrayList<AccessibilityNodeInfo>()
+                collectNodes(root, all, 0)
+                for (n in all) {
+                    val id = n.viewIdResourceName ?: continue
+                    if (id.contains("player", true) && n.isVisibleToUser) {
+                        val r = Rect()
+                        n.getBoundsInScreen(r)
+                        if (r.width() > dm.widthPixels * 0.8 &&
+                            r.height() > dm.heightPixels * 0.12 &&
+                            r.top < dm.heightPixels * 0.4
+                        ) {
+                            return r.centerY().toFloat()
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+        }
+        return dm.heightPixels * 0.17f
+    }
+
+    private fun clickFullscreenButton(): Boolean {
+        return clickBest("enter fullscreen") || clickBest("enter full screen") ||
+            clickBest("fullscreen") || clickBest("full screen")
+    }
+
+    /** Video ko full screen karo (background thread se bulao) */
+    fun enterFullscreen(): Boolean {
+        if (clickFullscreenButton()) return true
+        // Button chhupa hai: video par tap karke dikhao, phir dabao
+        val dm = resources.displayMetrics
+        tapAt(dm.widthPixels / 2f, playerCenterY())
+        nap(900)
+        return clickFullscreenButton()
+    }
+
+    /** Video aage ya peeche karo: YouTube ke double-tap se (ek baar = 10 second) */
+    fun seekVideo(forward: Boolean, times: Int) {
+        val dm = resources.displayMetrics
+        val x = if (forward) dm.widthPixels * 0.82f else dm.widthPixels * 0.18f
+        val y = playerCenterY()
+        for (i in 0 until times) {
+            doubleTapAt(x, y)
+            nap(550)
+        }
     }
 
     /** Jahan cursor hai (ya pehla likhne wala dabba) wahan text likho */
