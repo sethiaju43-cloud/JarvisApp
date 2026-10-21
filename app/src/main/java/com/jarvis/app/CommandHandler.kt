@@ -1,12 +1,15 @@
 package com.jarvis.app
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.ContactsContract
 import android.provider.MediaStore
+import androidx.core.content.ContextCompat
 
 object CommandHandler {
 
@@ -35,7 +38,9 @@ object CommandHandler {
         "सर्च" to "search", "ढूंढो" to "search", "ढूँढो" to "search", "ढूंढ" to "search",
         "ढूँढ" to "search", "खोजो" to "search", "खोजिए" to "search", "खोजें" to "search",
         "पढ़" to "padh", "पढ" to "padh", "स्क्रीन" to "screen", "सुनाओ" to "sunao",
-        "बताओ" to "batao", "क्या लिखा" to "kya likha",
+        "बताओ" to "batao", "क्या लिखा" to "kya likha", "लिखा" to "likha",
+        "दिख" to "dikh", "किसका" to "kiska", "किसकी" to "kiski", "किसके" to "kiske",
+        "कॉल" to "call", "नंबर" to "number", "नम्बर" to "number",
         "बैक" to "back", "पीछे" to "peeche", "होम" to "home",
         "स्क्रॉल" to "scroll", "स्क्रोल" to "scroll", "क्लिक" to "click", "टैप" to "tap",
         "नीचे" to "neeche", "ऊपर" to "upar", "रिसेंट" to "recent",
@@ -67,17 +72,16 @@ object CommandHandler {
         return s
     }
 
-    /** Kya user screen padhne ko keh raha hai? */
+    /** Kya user screen padhne / dekhne ko keh raha hai? (vaakya kitna bhi lamba ho) */
     fun wantsScreen(raw: String): Boolean {
         val t = normalize(raw)
-        val n = t.split(" ").filter { it.isNotBlank() }.size
-        if (n > 12) return false
         if (t.contains("padhai")) return false
         if (t.contains("padh")) return true
-        if (t.contains("kya likha")) return true
-        if (t.contains("screen") &&
-            (t.contains("sunao") || t.contains("batao") || t.contains("dekho"))
-        ) return true
+        if (t.contains("screen")) return true
+        if (t.contains("likha")) return true
+        if (t.contains("kiska") || t.contains("kiski") || t.contains("kiske")) return true
+        if (t.contains("dikh") && (t.contains("kya") || t.contains("kaun"))) return true
+        if (t.contains("number") && t.contains("call")) return true
         return false
     }
 
@@ -109,14 +113,8 @@ object CommandHandler {
             // Nahi mila to Gemini samjhega
         }
 
-        // Screen padhna: Accessibility chahiye, padhne ka kaam Gemini karega
-        if (wantsScreen(raw)) {
-            return if (JarvisAccessibilityService.instance == null) {
-                "Screen padhne ke liye Permissions mein Accessibility allow karo 🔐"
-            } else {
-                null
-            }
-        }
+        // Screen padhne wale sawaal Gemini ke paas jayenge (screen ka text saath mein)
+        if (wantsScreen(raw)) return null
 
         // Phone control (Accessibility chahiye) - sirf chhote commands par
         val isControl = t.contains("back") || t.contains("home") ||
@@ -170,35 +168,131 @@ object CommandHandler {
         }
         val ai = r.indexOf("ACTION:")
         if (ai >= 0) {
-            val act = r.substring(ai + 7).lines().first().trim().uppercase()
-            return runAction(act)
+            val line = r.substring(ai + 7).lines().first().trim()
+            return runAction(context, line)
         }
         return reply
     }
 
-    private fun runAction(a: String): String {
+    private fun runAction(context: Context, line: String): String {
+        val up = line.uppercase()
+
+        // Call: Accessibility ki zarurat nahi
+        if (up.startsWith("CALL")) {
+            val target = line.drop(4).trim().trim('"', '\'', '<', '>')
+            return callTarget(context, target)
+        }
+
         val svc = JarvisAccessibilityService.instance
             ?: return "Pehle Permissions mein Accessibility Service allow karo 🔐"
+
+        if (up.startsWith("TYPE")) {
+            val txt = line.drop(4).trim().trim('"', '\'')
+            if (txt.isBlank()) return "Kya likhun jaan? 🤔"
+            return if (svc.typeText(txt)) {
+                "Likh diya: " + txt + " ✍️"
+            } else {
+                "Likhne ki jagah nahi mili. Pehle jahan likhna hai wahan tap kar do 😕"
+            }
+        }
+
+        if (up.startsWith("CLICK")) {
+            val name = line.drop(5).trim().trim('"', '\'')
+            if (name.isBlank()) return "Kaunsa button dabaun? 🤔"
+            return if (svc.clickByText(name)) {
+                "'" + name + "' dabaa diya! 👆"
+            } else {
+                "Screen par '" + name + "' nahi mila 😕"
+            }
+        }
+
         return when {
-            a.contains("BACK") -> {
+            up.contains("BACK") -> {
                 svc.goBack(); "Back kar diya!"
             }
-            a.contains("HOME") -> {
+            up.contains("HOME") -> {
                 svc.goHome(); "Home par aa gaye!"
             }
-            a.contains("RECENT") -> {
+            up.contains("RECENT") -> {
                 svc.openRecents(); "Recent apps khol diye!"
             }
-            a.contains("SCROLL_UP") -> {
+            up.contains("SCROLL_UP") -> {
                 svc.scrollUp(); "Upar scroll kar diya!"
             }
-            a.contains("SCROLL") -> {
+            up.contains("SCROLL") -> {
                 svc.scrollDown(); "Neeche scroll kar diya!"
             }
             else -> "Ye kaam mujhe samajh nahi aaya 😕"
         }
     }
 
+    // ---------- Call ----------
+    private fun callTarget(context: Context, target: String): String {
+        val digits = target.filter { it.isDigit() || it == '+' }
+        if (digits.count { it.isDigit() } >= 5) {
+            return placeCall(context, digits, digits)
+        }
+        if (!hasContacts(context)) {
+            return "Naam se call karne ke liye Permissions mein Contacts allow karo 📒"
+        }
+        for (n in target.split("|")) {
+            val c = findContact(context, n.trim())
+            if (c != null) return placeCall(context, c.second, c.first)
+        }
+        return "'" + target + "' naam ka contact nahi mila 😕"
+    }
+
+    private fun placeCall(context: Context, number: String, label: String): String {
+        val canCall = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.CALL_PHONE
+        ) == PackageManager.PERMISSION_GRANTED
+        val action = if (canCall) Intent.ACTION_CALL else Intent.ACTION_DIAL
+        val i = Intent(action, Uri.parse("tel:" + Uri.encode(number)))
+        return launchIntent(context, i, label + " ko call laga rahi hun 📞")
+    }
+
+    private fun hasContacts(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context, Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun findContact(context: Context, name: String): Pair<String, String>? {
+        val want = name.lowercase().replace(" ", "")
+        if (want.length < 2) return null
+        var best: Pair<String, String>? = null
+        var bestScore = 0
+        val cursor = context.contentResolver.query(
+            ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+            arrayOf(
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                ContactsContract.CommonDataKinds.Phone.NUMBER
+            ),
+            null, null, null
+        ) ?: return null
+        cursor.use { c ->
+            while (c.moveToNext()) {
+                val n = c.getString(0) ?: continue
+                val num = c.getString(1) ?: continue
+                val l = n.lowercase().replace(" ", "")
+                var score = 0
+                if (l == want) {
+                    score = 4
+                } else if (l.startsWith(want) || (l.length >= 3 && want.startsWith(l))) {
+                    score = 3
+                } else if (l.contains(want)) {
+                    score = 2
+                }
+                if (score > bestScore) {
+                    best = Pair(n, num)
+                    bestScore = score
+                }
+            }
+        }
+        return best
+    }
+
+    // ---------- Apps ----------
     /** Phone mein jitne apps hain unki list: (naam, package) */
     fun installedApps(context: Context): List<Pair<String, String>> {
         val pm = context.packageManager
