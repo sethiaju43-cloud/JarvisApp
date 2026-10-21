@@ -3,6 +3,7 @@ package com.jarvis.app
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -80,10 +81,43 @@ class JarvisAccessibilityService : AccessibilityService() {
         return false
     }
 
-    /** Screen par jo kuch likha hai wo sab text lautao */
+    /** Jahan cursor hai (ya pehla likhne wala dabba) wahan text likho */
+    fun typeText(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        var target: AccessibilityNodeInfo? = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (target == null || !target.isEditable) {
+            target = findEditable(root)
+        }
+        if (target == null) return false
+        val args = Bundle()
+        args.putCharSequence(
+            AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text
+        )
+        return target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+    }
+
+    private fun findEditable(n: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (n == null) return null
+        if (n.isEditable) return n
+        for (i in 0 until n.childCount) {
+            val r = findEditable(n.getChild(i))
+            if (r != null) return r
+        }
+        return null
+    }
+
+    /** Screen par jo kuch likha hai wo sab text lautao (sabse upar app ka naam) */
     fun readScreenText(): String {
         val root = rootInActiveWindow ?: return ""
         val sb = StringBuilder()
+        val pkg = root.packageName?.toString() ?: ""
+        var label = pkg
+        try {
+            val pm = packageManager
+            label = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+        } catch (e: Exception) {
+        }
+        sb.append("APP: ").append(label).append(" (").append(pkg).append(")\n")
         collectText(root, sb, 0)
         return sb.toString().trim()
     }
