@@ -3,6 +3,7 @@ package com.jarvis.app
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -34,6 +35,13 @@ class PermissionsActivity : AppCompatActivity() {
 
     private fun has(p: String) =
         ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+
+    private fun accEnabledInSettings(): Boolean {
+        val s = Settings.Secure.getString(
+            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: return false
+        return s.contains(packageName)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -73,6 +81,10 @@ class PermissionsActivity : AppCompatActivity() {
                     )
                 }),
 
+            Perm("Contacts", "Naam se call karne ke liye",
+                { has(Manifest.permission.READ_CONTACTS) },
+                { launcher.launch(arrayOf(Manifest.permission.READ_CONTACTS)) }),
+
             Perm("Notifications", "Background running",
                 {
                     Build.VERSION.SDK_INT < 33 ||
@@ -93,6 +105,17 @@ class PermissionsActivity : AppCompatActivity() {
             row.findViewById<TextView>(R.id.btnAllow).setOnClickListener { p.action() }
             b.container.addView(row)
         }
+
+        // Pichli galti (agar app kabhi giri ho) neeche dikhegi
+        val crash = getSharedPreferences("jarvis", MODE_PRIVATE).getString("crash", "") ?: ""
+        if (crash.isNotBlank()) {
+            val tv = TextView(this)
+            tv.text = "Pichli galti (screenshot bhej dena):\n" + crash
+            tv.setTextColor(Color.parseColor("#FF8A80"))
+            tv.textSize = 10f
+            tv.setPadding(40, 30, 40, 30)
+            b.container.addView(tv)
+        }
     }
 
     override fun onResume() {
@@ -102,7 +125,8 @@ class PermissionsActivity : AppCompatActivity() {
 
     private fun refresh() {
         for (i in perms.indices) {
-            val btn = b.container.getChildAt(i).findViewById<TextView>(R.id.btnAllow)
+            val row = b.container.getChildAt(i)
+            val btn = row.findViewById<TextView>(R.id.btnAllow)
             if (perms[i].granted()) {
                 btn.text = "Done ✓"
                 btn.alpha = 0.5f
@@ -110,6 +134,13 @@ class PermissionsActivity : AppCompatActivity() {
                 btn.text = "Allow"
                 btn.alpha = 1f
             }
+        }
+        // Accessibility chalu dikh rahi ho par atki ho to bata do
+        val sub = b.container.getChildAt(0).findViewById<TextView>(R.id.tvPermSub)
+        if (JarvisAccessibilityService.instance == null && accEnabledInSettings()) {
+            sub.text = "Atki hui hai: Allow dabao, Jarvis Phone Control OFF phir ON karo"
+        } else {
+            sub.text = "Back, Home, Scroll, Tap"
         }
     }
 }
