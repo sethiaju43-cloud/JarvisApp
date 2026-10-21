@@ -51,12 +51,22 @@ object GeminiClient {
         "Agar user ne 'is number par call karo' bola aur number screen par likha ho, " +
         "to [SCREEN TEXT] se wo number nikaal kar ACTION: CALL <number> likho. " +
         "Agar user kuch likhne ya type karne ko kahe, to sirf ek line mein jawab do: ACTION: TYPE <jo likhna hai>. " +
+        "Alarm ke liye sirf ek line mein jawab do: ACTION: ALARM HH:MM (24 ghante ke format mein). " +
+        "Agar subah ya shaam na bola ho, to abhi ke time ke baad jo agla wo time aaye wahi chuno. " +
+        "Timer ke liye: ACTION: TIMER <seconds mein>. " +
+        "Video bada ya full screen karne ko kahe to: ACTION: FULLSCREEN. " +
+        "Video aage karne ko kahe to ACTION: SEEK 10, peeche karne ko ACTION: SEEK -10 " +
+        "(YouTube ek baar mein 10 second badhata hai, 5 second maange tab bhi 10 likho). " +
         "Agar user screen par kuch dabane, chunne, band karne ya video chalane ko kahe " +
         "(jaise 'pehla video chalao', 'Send dabao', 'OK karo', 'Cancel dabao', 'sab apps hata do'), " +
         "to sirf ek line mein jawab do: ACTION: CLICK <us cheez ka naam>. " +
-        "Video ke liye [SCREEN TEXT] mein se uska title bilkul waisa hi chuno (menu ya three dot wali line mat chunna). " +
+        "Video ke liye [SCREEN TEXT] mein se uska title bilkul waisa hi chuno " +
+        "(menu, three dot, Shorts ya Ad wali line mat chunna). " +
         "Agar sahi naam [SCREEN TEXT] mein na mile (jaise icon, X ya game ka button), tab bhi " +
         "ACTION: CLICK <jo user ne bola wo, English mein> likho, screenshot dekhkar dhundh liya jayega. " +
+        "Agar user ek saath kai kaam bole (jaise 'YouTube kholo aur pehla video chalao aur bada karo'), " +
+        "to sirf PEHLA kaam ek line mein likho aur line ke aakhir mein ' | MORE' lagao. " +
+        "Agla kaam baad mein alag se poochha jayega. " +
         "Aise command par koi aur shabd mat likho. " +
         "Agar sawaal taaza jaankari ka ho (news, mausam, score, daam, kisi cheez ke baare mein search), " +
         "to Google Search se dekhkar sahi jawab do. " +
@@ -72,6 +82,8 @@ object GeminiClient {
     private const val LIMIT_MSG =
         "Jaan, aaj ka free limit khatam ho gaya 🥺 Thodi der baad ya kal dopahar tak ruk jao, phir baat karte hain!"
 
+    private val moreRegex = Regex("\\s*\\|?\\s*MORE\\b")
+
     private val webWords = listOf(
         "search", "सर्च", "news", "न्यूज", "समाचार", "samachar", "mausam", "मौसम",
         "weather", "score", "स्कोर", "ढूंढ", "ढूँढ", "dhundo", "latest", "aaj ka",
@@ -83,9 +95,10 @@ object GeminiClient {
         "click", "tap", "dabao", "dabaao", "play", "chalao", "pehla", "pehli", "dusra",
         "dusri", "teesra", "teesri", "video", "select", "send", "bhejo", "bhej do",
         "type", "likho", "reply", "cancel", "ok", "clear", "hata", "band", "call",
+        "full", "bada", "aage", "peeche", "seek",
         "क्लिक", "टैप", "दबाओ", "प्ले", "चलाओ", "पहला", "पहली",
         "दूसरा", "दूसरी", "तीसरा", "वीडियो", "भेजो", "लिखो", "जवाब", "सेंड",
-        "कैंसल", "ओके", "हटा", "बंद", "कॉल"
+        "कैंसल", "ओके", "हटा", "बंद", "कॉल", "बड़ा", "आगे", "पीछे"
     )
 
     private val followWords = listOf(
@@ -182,6 +195,13 @@ object GeminiClient {
             r.startsWith("Jaan, aaj ka free limit")
     }
 
+    private fun nap(ms: Long) {
+        try {
+            Thread.sleep(ms)
+        } catch (e: Exception) {
+        }
+    }
+
     // ---- DNS ki dikkat ka ilaaj: pehle Google DNS, phir phone ka DNS ----
     private var cacheHost = ""
     private var cacheAddrs: List<InetAddress> = emptyList()
@@ -237,18 +257,6 @@ object GeminiClient {
         return false
     }
 
-    // ---------- Screenshot ----------
-    private fun takeCleanShot(svc: JarvisAccessibilityService): Bitmap? {
-        FloatingService.hideForShot(true)
-        try {
-            Thread.sleep(350)
-        } catch (e: Exception) {
-        }
-        val b = svc.screenshotBlocking()
-        FloatingService.hideForShot(false)
-        return b
-    }
-
     private fun toBase64(src: Bitmap, maxSide: Int): String {
         val big = Math.max(src.width, src.height).toFloat()
         val sc = Math.min(1f, maxSide.toFloat() / big)
@@ -273,40 +281,47 @@ object GeminiClient {
             .getString("api_key", "") ?: ""
         if (key.isBlank()) return "Pehle Settings mein apni Gemini API Key daalo 🔑"
 
-        val shot = takeCleanShot(svc)
-            ?: return "Screenshot nahi le payi (ye screen secure ho sakti hai) 😕"
-        val w = shot.width
-        val h = shot.height
-        val b64 = toBase64(shot, 1000)
+        CommandHandler.petHidden(true)
+        try {
+            nap(350)
+            val shot = svc.screenshotBlocking()
+                ?: return "Screenshot nahi le payi (ye screen secure ho sakti hai) 😕"
+            val w = shot.width
+            val h = shot.height
+            val b64 = toBase64(shot, 1000)
 
-        val prompt = "This is a screenshot of an Android phone. Find the button or item the user " +
-            "wants to tap: \"" + target + "\". It may be an icon (like X, back arrow, three dots, " +
-            "play) or a text button (like OK, Cancel). Reply ONLY with JSON like " +
-            "{\"found\": true, \"x\": 500, \"y\": 500} where x and y are the CENTER of that item " +
-            "as thousandths of the image width and height (0,0 = top-left, 1000,1000 = bottom-right). " +
-            "If it is not visible reply {\"found\": false}."
-        val msgs = ArrayList<Pair<String, String>>()
-        msgs.add(Pair("user", prompt))
-        val reply = askWith(
-            key, msgs, "You look at phone screenshots and reply only with JSON.", false, b64
-        )
-        if (isErrorReply(reply)) return reply
+            val prompt = "This is a screenshot of an Android phone. Find the button or item the user " +
+                "wants to tap: \"" + target + "\". It may be an icon (like X, back arrow, three dots, " +
+                "play) or a text button (like OK, Cancel). Reply ONLY with JSON like " +
+                "{\"found\": true, \"x\": 500, \"y\": 500} where x and y are the CENTER of that item " +
+                "as thousandths of the image width and height (0,0 = top-left, 1000,1000 = bottom-right). " +
+                "If it is not visible reply {\"found\": false}."
+            val msgs = ArrayList<Pair<String, String>>()
+            msgs.add(Pair("user", prompt))
+            val reply = askWith(
+                key, msgs, "You look at phone screenshots and reply only with JSON.", false, b64
+            )
+            if (isErrorReply(reply)) return reply
 
-        val found = Regex("\"found\"\\s*:\\s*true").containsMatchIn(reply)
-        val mx = Regex("\"x\"\\s*:\\s*(-?[0-9.]+)").find(reply)
-        val my = Regex("\"y\"\\s*:\\s*(-?[0-9.]+)").find(reply)
-        val xv = mx?.groupValues?.get(1)?.toDoubleOrNull()
-        val yv = my?.groupValues?.get(1)?.toDoubleOrNull()
-        if (!found || xv == null || yv == null) {
-            return "Screen dekh kar bhi '" + target + "' nahi mila 😕"
+            val found = Regex("\"found\"\\s*:\\s*true").containsMatchIn(reply)
+            val mx = Regex("\"x\"\\s*:\\s*(-?[0-9.]+)").find(reply)
+            val my = Regex("\"y\"\\s*:\\s*(-?[0-9.]+)").find(reply)
+            val xv = mx?.groupValues?.get(1)?.toDoubleOrNull()
+            val yv = my?.groupValues?.get(1)?.toDoubleOrNull()
+            if (!found || xv == null || yv == null) {
+                return "Screen dekh kar bhi '" + target + "' nahi mila 😕"
+            }
+            val px = (xv.coerceIn(0.0, 1000.0) / 1000.0 * w).toFloat()
+            val py = (yv.coerceIn(0.0, 1000.0) / 1000.0 * h).toFloat()
+            svc.tapAt(px, py)
+            nap(300)
+            return "'" + target + "' par tap kar diya (screen dekh kar) 👆"
+        } finally {
+            CommandHandler.petHidden(false)
         }
-        val px = (xv.coerceIn(0.0, 1000.0) / 1000.0 * w).toFloat()
-        val py = (yv.coerceIn(0.0, 1000.0) / 1000.0 * h).toFloat()
-        svc.tapAt(px, py)
-        return "'" + target + "' par tap kar diya (screen dekh kar) 👆"
     }
 
-    /** Phone ke commands, search, screen padhna, likhna, call aur yaaddasht wala smart jawab */
+    /** Phone ke commands, search, screen padhna, likhna, call, alarm aur kai-step kaam */
     fun askSmart(context: Context, apiKey: String, history: List<Pair<String, String>>): String {
         val last = history.lastOrNull()
         val userText = if (last != null && last.first == "user") last.second else ""
@@ -321,6 +336,9 @@ object GeminiClient {
             val l = svc.currentAppLabel()
             if (l.isNotBlank()) appLine = "Abhi user is app mein hai: " + l + ". "
         }
+        val nowStr = java.text.SimpleDateFormat("HH:mm, EEEE", java.util.Locale.ENGLISH)
+            .format(java.util.Date())
+        val timeLine = "Abhi ka time: " + nowStr + ". "
 
         var extra = ""
         var imageB64: String? = null
@@ -343,7 +361,10 @@ object GeminiClient {
                 if (readQ) {
                     val lines = s.split("\n").filter { it.isNotBlank() }.size
                     if (lines < 6) {
-                        val shot = takeCleanShot(svc)
+                        CommandHandler.petHidden(true)
+                        nap(350)
+                        val shot = svc.screenshotBlocking()
+                        CommandHandler.petHidden(false)
                         if (shot != null) {
                             imageB64 = toBase64(shot, 1000)
                             extra = extra +
@@ -369,18 +390,66 @@ object GeminiClient {
             names.append(a.first)
             count++
         }
-        val prompt = SYSTEM_PROMPT + COMMAND_RULES + appLine +
+        val prompt = SYSTEM_PROMPT + COMMAND_RULES + appLine + timeLine +
             "Phone mein installed apps ki list: " + names.toString()
 
-        val msgs = ArrayList<Pair<String, String>>(mem)
-        msgs.add(Pair("user", userText + extra))
+        val base = ArrayList<Pair<String, String>>(mem)
+        base.add(Pair("user", userText + extra))
 
-        val reply = askWith(apiKey, mergeSame(msgs), prompt, wantSearch, imageB64)
-        val result = CommandHandler.interpret(context, reply)
-        if (!isErrorReply(result)) {
-            noteLocal(context, userText, result)
+        var cur = askWith(apiKey, mergeSame(base), prompt, wantSearch, imageB64)
+
+        // Ek-ek step karke kaam karo (kai kaam ek saath bole ho to)
+        val steps = ArrayList<String>()
+        var finalText = cur
+        var viaDone = false
+        var guard = 0
+        while (guard < 8) {
+            guard++
+            val hasAct = cur.contains("OPEN:") || cur.contains("ACTION:")
+            if (!hasAct) {
+                val di = cur.indexOf("DONE:")
+                if (di >= 0) {
+                    finalText = cur.substring(di + 5).trim()
+                    viaDone = true
+                } else {
+                    finalText = cur
+                }
+                break
+            }
+            val more = moreRegex.containsMatchIn(cur)
+            val cleaned = cur.replace(moreRegex, "").trim()
+            val res = CommandHandler.interpret(context, cleaned)
+            steps.add(res)
+            finalText = res
+            if (!more || steps.size >= 6 || res.contains("😕") || isErrorReply(res)) break
+
+            // Agla step: kaam hone do, naya screen dekho
+            nap(2600)
+            val s2 = JarvisAccessibilityService.instance
+            val st = if (s2 != null) s2.readScreenText() else ""
+            val agentMsg = "[AGENT] Poora kaam jo user ne bola: " + userText +
+                "\nAbhi tak ho gaya: " + steps.joinToString(" | ") +
+                "\n\n[SCREEN TEXT]\n" + (if (st.isBlank()) "(khali)" else st) +
+                "\n\nAgar kaam abhi baaki hai to agla sirf ek kaam ek line mein likho " +
+                "(OPEN: ya ACTION: ...). Agar uske baad bhi kaam baaki rahega to line ke aakhir mein " +
+                "' | MORE' lagao. Agar poora ho gaya ho to sirf likho: DONE: <ek chhota pyaara message>."
+            val next = ArrayList<Pair<String, String>>(base)
+            next.add(Pair("model", cleaned))
+            next.add(Pair("user", agentMsg))
+            cur = askWith(apiKey, mergeSame(next), prompt, false, null)
+            if (isErrorReply(cur)) {
+                finalText = cur
+                break
+            }
         }
-        return result
+        if (steps.size > 1 && !viaDone && !finalText.contains("😕") && !isErrorReply(finalText)) {
+            finalText = "Ho gaya jaan ✅ " + finalText
+        }
+
+        if (!isErrorReply(finalText)) {
+            noteLocal(context, userText, finalText)
+        }
+        return finalText
     }
 
     /** Sirf baat-cheet (phone control ke bina) */
@@ -418,10 +487,7 @@ object GeminiClient {
                 // Is model ka limit khatam: seedha agle model par jao
                 if (r.code == 429) break
                 if (!r.retry) return r.text
-                try {
-                    Thread.sleep(600)
-                } catch (e: Exception) {
-                }
+                nap(600)
             }
         }
         if (lastError.contains("quota", true) || lastError.contains("RESOURCE_EXHAUSTED")) {
