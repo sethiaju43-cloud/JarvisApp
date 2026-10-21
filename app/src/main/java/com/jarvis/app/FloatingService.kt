@@ -1,41 +1,100 @@
 package com.jarvis.app
 
+import android.Manifest
+import android.animation.ValueAnimator
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.LinearInterpolator
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import java.util.Locale
+import java.util.Random
 
 class FloatingService : Service() {
 
     private var wm: WindowManager? = null
     private var floatView: View? = null
+    private var bubble: TextView? = null
+    private var pet: PetAnimator? = null
     private lateinit var params: WindowManager.LayoutParams
     private val handler = Handler(Looper.getMainLooper())
+    private val rnd = Random()
 
-    private val messages = listOf(
-        "Kya kar rahe ho? 😀",
-        "Bolo, kya karna hai? 😊",
-        "Main yahan hun! 🙌",
-        "Kuch chahiye? 🤔"
+    private var walkAnim: ValueAnimator? = null
+    private var hideRunnable: Runnable? = null
+    private var shiftX = 0
+    private var shiftY = 0
+    private var dragging = false
+    private var listening = false
+    private var lastTouch = System.currentTimeMillis()
+
+    private var recognizer: SpeechRecognizer? = null
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+    private val history = ArrayList<Pair<String, String>>()
+
+    private val idleLines = listOf(
+        "Hello jaan! 😊", "Kya kar rahe ho? 😀", "Main yahan hun! 🙌",
+        "Bore ho rahe ho? 🤔", "Mujhse baat karo na 💕"
     )
-    private var msgIndex = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        tts = TextToSpeech(applicationContext, TextToSpeech.OnInitListener { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                val t = tts
+                if (t != null) {
+                    val r = t.setLanguage(Locale("hi", "IN"))
+                    if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                        t.setLanguage(Locale.getDefault())
+                    }
+                    t.setPitch(1.25f)
+                    t.setSpeechRate(1.0f)
+                    t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) {
+                            handler.post { pet?.talk(60000) }
+                        }
+
+                        override fun onDone(utteranceId: String?) {
+                            handler.post { calm() }
+                        }
+
+                        override fun onError(utteranceId: String?) {
+                            handler.post { calm() }
+                        }
+                    })
+                    ttsReady = true
+                }
+            }
+        })
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundNotification()
@@ -44,6 +103,8 @@ class FloatingService : Service() {
         }
         return START_STICKY
     }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     private fun startForegroundNotification() {
         val channelId = "jarvis_channel"
@@ -58,15 +119,22 @@ class FloatingService : Service() {
             .setContentText("Tap karke kholo")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(
-                android.app.PendingIntent.getActivity(
+                PendingIntent.getActivity(
                     this, 0, Intent(this, MainActivity::class.java),
-                    android.app.PendingIntent.FLAG_IMMUTABLE
+                    PendingIntent.FLAG_IMMUTABLE
                 )
             )
             .build()
 
         if (Build.VERSION.SDK_INT >= 34) {
-            startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            val micOk = ContextCompat.checkSelfPermission(
+                this, Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            if (micOk) {
+                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            startForeground(1, notif, type)
         } else {
             startForeground(1, notif)
         }
@@ -74,7 +142,8 @@ class FloatingService : Service() {
 
     private fun showFloating() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        floatView = LayoutInflater.from(this).inflate(R.layout.floating_view, null)
+        val v = LayoutInflater.from(this).inflate(R.layout.floating_view, null)
+        floatView = v
 
         params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -87,42 +156,59 @@ class FloatingService : Service() {
         params.x = 20
         params.y = 300
 
-        val bubble = floatView!!.findViewById<TextView>(R.id.tvFloatBubble)
-        val img = floatView!!.findViewById<View>(R.id.imgFloat)
+        bubble = v.findViewById<TextView>(R.id.tvFloatBubble)
+        val petBox = v.findViewById<View>(R.id.petBox)
+        val front = v.findViewById<ImageView>(R.id.petFront)
+        val back = v.findViewById<ImageView>(R.id.petBack)
+        pet = PetAnimator(applicationContext, petBox, front, back)
 
-        // Drag + tap handle karo
-        img.setOnTouchListener(object : View.OnTouchListener {
+        petBox.setOnTouchListener(object : View.OnTouchListener {
             private var startX = 0
             private var startY = 0
             private var touchX = 0f
             private var touchY = 0f
+            private var downAt = 0L
             private var moved = false
 
-            override fun onTouch(v: View, e: MotionEvent): Boolean {
+            override fun onTouch(view: View, e: MotionEvent): Boolean {
                 when (e.action) {
                     MotionEvent.ACTION_DOWN -> {
+                        walkAnim?.cancel()
+                        dragging = true
+                        moved = false
+                        downAt = System.currentTimeMillis()
                         startX = params.x
                         startY = params.y
                         touchX = e.rawX
                         touchY = e.rawY
-                        moved = false
+                        lastTouch = System.currentTimeMillis()
                         return true
                     }
                     MotionEvent.ACTION_MOVE -> {
                         val dx = (e.rawX - touchX).toInt()
                         val dy = (e.rawY - touchY).toInt()
-                        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) moved = true
-                        params.x = startX + dx
-                        params.y = startY + dy
-                        wm?.updateViewLayout(floatView, params)
+                        if (!moved && (Math.abs(dx) > 12 || Math.abs(dy) > 12)) {
+                            moved = true
+                            pet?.stop()
+                            pet?.show("walk_left")
+                        }
+                        if (moved) {
+                            if (Math.abs(dx) > 3) pet?.face(if (dx > 0) 1 else -1)
+                            params.x = startX + dx
+                            params.y = startY + dy
+                            updateLayout()
+                        }
                         return true
                     }
                     MotionEvent.ACTION_UP -> {
-                        if (!moved) {
-                            // Tap kiya to Jarvis chat khol do
-                            val i = Intent(this@FloatingService, ChatActivity::class.java)
-                            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            startActivity(i)
+                        dragging = false
+                        if (moved) {
+                            say("Wah, nayi jagah! 😍", 2000L)
+                            pet?.laugh(1800)
+                        } else if (System.currentTimeMillis() - downAt > 700) {
+                            openChat()
+                        } else {
+                            onPetTapped()
                         }
                         return true
                     }
@@ -131,24 +217,283 @@ class FloatingService : Service() {
             }
         })
 
-        wm?.addView(floatView, params)
+        wm?.addView(v, params)
+        handler.postDelayed({
+            say("Hello jaan! 😊", 2500L)
+            pet?.wave(2400)
+        }, 1000)
+        handler.postDelayed(auto, 9000)
+    }
 
-        // Har 8 second mein bubble dikhao
-        val bubbleRunnable = object : Runnable {
-            override fun run() {
-                msgIndex = (msgIndex + 1) % messages.size
-                bubble.text = messages[msgIndex]
-                bubble.visibility = View.VISIBLE
-                handler.postDelayed({ bubble.visibility = View.GONE }, 3500)
-                handler.postDelayed(this, 8000)
+    private fun updateLayout() {
+        val v = floatView ?: return
+        try {
+            wm?.updateViewLayout(v, params)
+        } catch (e: Exception) {
+        }
+    }
+
+    // ---------- Bubble ----------
+    private fun say(text: String, ms: Long) {
+        val b = bubble ?: return
+        hideBubbleNow()
+        b.text = text
+        b.visibility = View.VISIBLE
+        b.measure(
+            View.MeasureSpec.makeMeasureSpec(dp(120), View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        shiftY = minOf(b.measuredHeight + dp(2), params.y.coerceAtLeast(0))
+        shiftX = ((b.measuredWidth - dp(90)) / 2).coerceAtLeast(0)
+        params.y -= shiftY
+        params.x -= shiftX
+        updateLayout()
+        val r = Runnable { hideBubbleNow() }
+        hideRunnable = r
+        handler.postDelayed(r, ms)
+    }
+
+    private fun hideBubbleNow() {
+        val old = hideRunnable
+        if (old != null) handler.removeCallbacks(old)
+        hideRunnable = null
+        val b = bubble ?: return
+        if (b.visibility == View.VISIBLE) {
+            b.visibility = View.GONE
+            params.y += shiftY
+            params.x += shiftX
+            shiftX = 0
+            shiftY = 0
+            updateLayout()
+        }
+    }
+
+    private fun calm() {
+        pet?.stop()
+        pet?.show("talk_closed")
+    }
+
+    // ---------- Tap par sunna ----------
+    private fun onPetTapped() {
+        lastTouch = System.currentTimeMillis()
+        val p = pet ?: return
+        if (listening) {
+            cancelListening()
+            return
+        }
+        if (p.isSleeping()) p.wake()
+        stopSpeaking()
+        startListening()
+    }
+
+    private fun startListening() {
+        val micOk = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!micOk) {
+            say("Pehle Permissions mein Microphone allow karo 🎤", 3500L)
+            return
+        }
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            say("Is phone mein voice sunne ki service nahi mili 😕", 3500L)
+            return
+        }
+        listening = true
+        say("Bolo jaan... 🎤", 10000L)
+        pet?.think(30000)
+
+        val lang = getSharedPreferences("jarvis", MODE_PRIVATE)
+            .getString("lang", "hi-IN") ?: "hi-IN"
+        val sr = SpeechRecognizer.createSpeechRecognizer(this)
+        recognizer = sr
+        sr.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(b0: Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() {}
+            override fun onPartialResults(partialResults: Bundle?) {}
+            override fun onEvent(eventType: Int, b0: Bundle?) {}
+
+            override fun onError(error: Int) {
+                if (!listening) return
+                listening = false
+                destroyRecognizer()
+                calm()
+                if (error == SpeechRecognizer.ERROR_NO_MATCH ||
+                    error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                ) {
+                    say("Kuch sunai nahi diya jaan 🥺", 2500L)
+                } else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                    say("Microphone allow karo 🎤", 3000L)
+                } else {
+                    say("Mic mein dikkat aayi (code " + error + ") 😕", 3000L)
+                }
+            }
+
+            override fun onResults(results: Bundle?) {
+                listening = false
+                destroyRecognizer()
+                val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                val text = list?.firstOrNull()
+                if (text.isNullOrBlank()) {
+                    calm()
+                    say("Kuch sunai nahi diya jaan 🥺", 2500L)
+                } else {
+                    handleSpoken(text)
+                }
+            }
+        })
+
+        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        i.putExtra(
+            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+        )
+        i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
+        sr.startListening(i)
+    }
+
+    private fun cancelListening() {
+        listening = false
+        destroyRecognizer()
+        calm()
+        hideBubbleNow()
+    }
+
+    private fun destroyRecognizer() {
+        val old = recognizer
+        recognizer = null
+        handler.post {
+            try {
+                old?.destroy()
+            } catch (e: Exception) {
             }
         }
-        handler.postDelayed(bubbleRunnable, 3000)
+    }
+
+    private fun stopSpeaking() {
+        try {
+            tts?.stop()
+        } catch (e: Exception) {
+        }
+    }
+
+    // ---------- Jo bola use samajhna ----------
+    private fun handleSpoken(text: String) {
+        pet?.think(30000)
+        say("Soch rahi hun... 💭", 20000L)
+
+        val cmdReply = CommandHandler.handle(this, text)
+        if (cmdReply != null) {
+            reply(cmdReply)
+            return
+        }
+
+        history.add(Pair("user", text))
+        val snapshot = ArrayList(history)
+        val key = getSharedPreferences("jarvis", MODE_PRIVATE)
+            .getString("api_key", "") ?: ""
+        Thread {
+            val r = GeminiClient.ask(key, snapshot)
+            handler.post {
+                history.add(Pair("model", r))
+                while (history.size > 16) {
+                    history.removeAt(0)
+                    history.removeAt(0)
+                }
+                reply(r)
+            }
+        }.start()
+    }
+
+    private fun reply(text: String) {
+        say(text, 2500L + text.length * 70L)
+        val t = tts
+        if (t != null && ttsReady) {
+            t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvi")
+        } else {
+            pet?.talk(2500)
+        }
+    }
+
+    private fun openChat() {
+        val i = Intent(this, ChatActivity::class.java)
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(i)
+    }
+
+    // ---------- Khud se kuch karna ----------
+    private val auto = object : Runnable {
+        override fun run() {
+            val p = pet
+            if (p != null && !dragging && !listening && !p.isSleeping()) {
+                if (System.currentTimeMillis() - lastTouch > 120000) {
+                    hideBubbleNow()
+                    p.sleep()
+                    say("Zzz... 😴", 2500L)
+                } else if (!p.busy) {
+                    when (rnd.nextInt(3)) {
+                        0 -> {
+                            say(idleLines[rnd.nextInt(idleLines.size)], 2600L)
+                            p.wave(2600)
+                        }
+                        1 -> {
+                            say(idleLines[rnd.nextInt(idleLines.size)], 3000L)
+                            p.talk(3000)
+                        }
+                        else -> walkRandom()
+                    }
+                }
+            }
+            handler.postDelayed(this, 9000)
+        }
+    }
+
+    private fun walkRandom() {
+        val p = pet ?: return
+        val v = floatView ?: return
+        hideBubbleNow()
+        val maxX = resources.displayMetrics.widthPixels - v.width
+        if (maxX <= 0) return
+        val tx = rnd.nextInt(maxX)
+        val dist = Math.abs(tx - params.x)
+        if (dist < dp(60)) return
+        val dur = (dist * 4L).coerceAtLeast(900L)
+        p.face(if (tx > params.x) 1 else -1)
+        p.walkFrames(dur)
+        walkAnim?.cancel()
+        val a = ValueAnimator.ofInt(params.x, tx)
+        a.duration = dur
+        a.interpolator = LinearInterpolator()
+        a.addUpdateListener { anim ->
+            params.x = anim.animatedValue as Int
+            updateLayout()
+        }
+        walkAnim = a
+        a.start()
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        floatView?.let { wm?.removeView(it) }
+        walkAnim?.cancel()
+        try {
+            recognizer?.destroy()
+        } catch (e: Exception) {
+        }
+        try {
+            tts?.stop()
+            tts?.shutdown()
+        } catch (e: Exception) {
+        }
+        pet?.release()
+        val v = floatView
+        if (v != null) {
+            try {
+                wm?.removeView(v)
+            } catch (e: Exception) {
+            }
+        }
         floatView = null
         super.onDestroy()
     }
