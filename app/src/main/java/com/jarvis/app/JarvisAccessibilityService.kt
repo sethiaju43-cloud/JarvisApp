@@ -79,4 +79,28 @@ class JarvisAccessibilityService : AccessibilityService() {
         }
         return false
     }
+
+    /** Screen par jo kuch likha hai wo sab text lautao */
+    fun readScreenText(): String {
+        val root = rootInActiveWindow ?: return ""
+        val sb = StringBuilder()
+        collectText(root, sb, 0)
+        return sb.toString().trim()
+    }
+
+    private fun collectText(n: AccessibilityNodeInfo?, sb: StringBuilder, depth: Int) {
+        if (n == null || depth > 40 || sb.length > 6000) return
+        val t = n.text
+        if (t != null && t.toString().isNotBlank()) {
+            sb.append(t.toString().trim()).append("\n")
+        } else {
+            val d = n.contentDescription
+            if (d != null && d.toString().isNotBlank()) {
+                sb.append(d.toString().trim()).append("\n")
+            }
+        }
+        for (i in 0 until n.childCount) {
+            collectText(n.getChild(i), sb, depth + 1)
+        }
+    }
 }
