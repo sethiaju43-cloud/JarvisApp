@@ -7,8 +7,11 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.AlarmClock
 import android.provider.ContactsContract
 import android.provider.MediaStore
+import android.view.View
+import android.view.WindowManager
 import androidx.core.content.ContextCompat
 
 object CommandHandler {
@@ -65,7 +68,44 @@ object CommandHandler {
         "प्लीज", "जरा", "ज़रा"
     )
 
+    // Ek vaakya mein kai kaam jodne wale shabd
+    private val connectors = listOf(
+        " aur ", " phir ", " fir ", " uske baad ", " then ", " and ", " और ", " फिर "
+    )
+
     private var scrollToken = 0
+
+    private fun nap(ms: Long) {
+        try {
+            Thread.sleep(ms)
+        } catch (e: Exception) {
+        }
+    }
+
+    /** Kaam ke waqt Jarvi ko chhupao (taaki wo button na dhake aur tap na rok le) */
+    fun petHidden(hide: Boolean) {
+        val s = FloatingService.instance ?: return
+        s.handler.post {
+            val v = s.floatView
+            if (v != null) {
+                v.visibility = if (hide) View.INVISIBLE else View.VISIBLE
+                try {
+                    val lp = v.layoutParams as? WindowManager.LayoutParams
+                    if (lp != null) {
+                        if (hide) {
+                            lp.flags = lp.flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                        } else {
+                            lp.flags = lp.flags and
+                                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE.inv()
+                        }
+                        val wm = v.context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                        wm.updateViewLayout(v, lp)
+                    }
+                } catch (e: Exception) {
+                }
+            }
+        }
+    }
 
     private fun normalize(raw: String): String {
         var s = raw.lowercase().trim()
@@ -127,6 +167,10 @@ object CommandHandler {
             scrollToken++
             return "Ruk gayi 🛑"
         }
+
+        // Ek saath kai kaam: Gemini ek-ek step karke karega
+        val padded = " " + t + " "
+        if (connectors.any { padded.contains(it) }) return null
 
         // YouTube ya Google par search
         if (t.contains("search") && wordCount <= 12) {
@@ -246,6 +290,10 @@ object CommandHandler {
             return "Ruk gayi 🛑"
         }
 
+        // Alarm aur timer: Accessibility ki zarurat nahi
+        if (up.startsWith("ALARM")) return setAlarm(context, line.drop(5).trim())
+        if (up.startsWith("TIMER")) return setTimer(context, line.drop(5).trim())
+
         // Call: Accessibility ki zarurat nahi (naam screen se dhundna ho to chahiye)
         if (up.startsWith("CALL")) {
             val target = line.drop(4).trim().trim('"', '\'', '<', '>')
@@ -254,6 +302,21 @@ object CommandHandler {
 
         val svc = JarvisAccessibilityService.instance
             ?: return "Accessibility atak gayi 😕 Settings mein Jarvis Phone Control ek baar OFF phir ON karo"
+
+        if (up.startsWith("FULLSCREEN")) return doFullscreen(context, svc)
+
+        if (up.startsWith("SEEK")) {
+            val secs = Regex("-?[0-9]+").find(line)?.value?.toIntOrNull() ?: 10
+            val fwd = secs >= 0
+            val times = ((Math.abs(secs) + 9) / 10).coerceIn(1, 12)
+            petHidden(true)
+            nap(250)
+            svc.seekVideo(fwd, times)
+            nap(300)
+            petHidden(false)
+            return (if (fwd) "Video aage " else "Video peeche ") + (times * 10) +
+                " second kar diya ⏩ (YouTube ek baar mein 10 second badhata hai)"
+        }
 
         if (up.startsWith("TYPE")) {
             val txt = line.drop(4).trim().trim('"', '\'')
@@ -268,6 +331,7 @@ object CommandHandler {
         if (up.startsWith("CLICK")) {
             val name = line.drop(5).trim().trim('"', '\'')
             if (name.isBlank()) return "Kaunsa button dabaun? 🤔"
+            if (name.lowercase().contains("full")) return doFullscreen(context, svc)
             if (svc.clickBest(name)) return "'" + name + "' dabaa diya! 👆"
             // Text se nahi mila (icon ya game ka button): screenshot dekh kar dhundo
             return GeminiClient.visionTap(context, name)
@@ -292,6 +356,50 @@ object CommandHandler {
             }
             else -> "Ye kaam mujhe samajh nahi aaya 😕"
         }
+    }
+
+    private fun doFullscreen(context: Context, svc: JarvisAccessibilityService): String {
+        petHidden(true)
+        nap(250)
+        val ok = svc.enterFullscreen()
+        nap(300)
+        petHidden(false)
+        if (ok) return "Video bada kar diya 📺"
+        return GeminiClient.visionTap(context, "fullscreen (enlarge video) button")
+    }
+
+    // ---------- Alarm aur timer ----------
+    private fun setAlarm(context: Context, arg: String): String {
+        val m = Regex("([0-9]{1,2})\\s*[:.]\\s*([0-9]{2})").find(arg)
+        val h: Int
+        val min: Int
+        if (m != null) {
+            h = m.groupValues[1].toInt()
+            min = m.groupValues[2].toInt()
+        } else {
+            val m2 = Regex("([0-9]{1,2})").find(arg)
+                ?: return "Alarm ka time samajh nahi aaya 😕"
+            h = m2.groupValues[1].toInt()
+            min = 0
+        }
+        if (h < 0 || h > 23 || min < 0 || min > 59) return "Alarm ka time samajh nahi aaya 😕"
+        val i = Intent(AlarmClock.ACTION_SET_ALARM)
+        i.putExtra(AlarmClock.EXTRA_HOUR, h)
+        i.putExtra(AlarmClock.EXTRA_MINUTES, min)
+        i.putExtra(AlarmClock.EXTRA_MESSAGE, "Jarvi alarm")
+        i.putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+        return launchIntent(context, i, "Alarm laga diya ⏰ " + String.format("%02d:%02d", h, min))
+    }
+
+    private fun setTimer(context: Context, arg: String): String {
+        val secs = Regex("[0-9]+").find(arg)?.value?.toIntOrNull()
+            ?: return "Timer ka time samajh nahi aaya 😕"
+        if (secs < 1 || secs > 86400) return "Timer ka time samajh nahi aaya 😕"
+        val i = Intent(AlarmClock.ACTION_SET_TIMER)
+        i.putExtra(AlarmClock.EXTRA_LENGTH, secs)
+        i.putExtra(AlarmClock.EXTRA_MESSAGE, "Jarvi timer")
+        i.putExtra(AlarmClock.EXTRA_SKIP_UI, true)
+        return launchIntent(context, i, "Timer laga diya ⏱️ " + secs + " second")
     }
 
     // ---------- Call ----------
