@@ -1,45 +1,81 @@
 package com.jarvis.app
 
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
-import android.view.animation.AccelerateDecelerateInterpolator
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.jarvis.app.databinding.ActivityMainBinding
+import java.util.Random
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var b: ActivityMainBinding
+    private var pet: PetAnimator? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private val rnd = Random()
+    private var lastTouch = System.currentTimeMillis()
 
-    private val greetings = listOf(
+    private val lines = listOf(
         "Hii! Main Jarvi hun\nBolo, kya karna hai? 😊",
         "Namaste! 🙏\nKya madad karun?",
-        "Haste hue... 😄\nBatao kya chahiye?",
-        "Sochti hui... 🤔\nKuch poochna hai?"
+        "Kya kar rahe ho? 😀",
+        "Bore ho rahe ho? 🤔\nChalo baat karte hain!",
+        "Main yahan hun! 🙌"
     )
-    private var greetIndex = 0
+
+    private val auto = object : Runnable {
+        override fun run() {
+            val p = pet
+            if (p != null && !p.isSleeping()) {
+                if (System.currentTimeMillis() - lastTouch > 60000) {
+                    p.sleep()
+                    b.tvBubble.text = "Zzz... 😴"
+                } else if (!p.busy) {
+                    when (rnd.nextInt(4)) {
+                        0 -> hello()
+                        1 -> {
+                            b.tvBubble.text = lines[rnd.nextInt(lines.size)]
+                            p.talk(3500)
+                        }
+                        2 -> {
+                            b.tvBubble.text = "Hehe haha! 😄"
+                            p.laugh(2200)
+                        }
+                        else -> {
+                            b.tvBubble.text = "Hmm... sochne do 🤔"
+                            p.think(2000)
+                        }
+                    }
+                }
+            }
+            handler.postDelayed(this, 8000)
+        }
+    }
+
+    private fun hello() {
+        b.tvBubble.text = lines[rnd.nextInt(lines.size)]
+        pet?.wave(2600)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
 
-        // Character ko halka halka upar-niche float karwao
-        ObjectAnimator.ofFloat(b.imgCharacter, "translationY", 0f, -18f).apply {
-            duration = 2000
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.REVERSE
-            interpolator = AccelerateDecelerateInterpolator()
-            start()
-        }
+        pet = PetAnimator(applicationContext, b.petBox, b.petFront, b.petBack)
 
-        // Character par tap karo to bubble ka text badle
-        b.imgCharacter.setOnClickListener {
-            greetIndex = (greetIndex + 1) % greetings.size
-            b.tvBubble.text = greetings[greetIndex]
+        b.petBox.setOnClickListener {
+            lastTouch = System.currentTimeMillis()
+            val p = pet ?: return@setOnClickListener
+            if (p.isSleeping()) {
+                p.wake()
+                b.tvBubble.text = "Arre! Jaag gayi 😄"
+            } else {
+                hello()
+            }
         }
 
         b.btnMic.setOnClickListener {
@@ -51,11 +87,14 @@ class MainActivity : AppCompatActivity() {
         b.btnSettings.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
+
+        handler.postDelayed({ hello() }, 600)
+        handler.postDelayed(auto, 8000)
     }
 
     override fun onResume() {
         super.onResume()
-        // Floating Jarvi sirf tab chalao jab Settings mein ON ho aur permission mili ho
+        lastTouch = System.currentTimeMillis()
         val floatingOn = getSharedPreferences("jarvis", MODE_PRIVATE)
             .getBoolean("floating", true)
         if (floatingOn && Settings.canDrawOverlays(this)) {
@@ -63,5 +102,11 @@ class MainActivity : AppCompatActivity() {
                 this, Intent(this, FloatingService::class.java)
             )
         }
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
+        pet?.release()
+        super.onDestroy()
     }
 }
