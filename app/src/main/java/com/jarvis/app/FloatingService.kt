@@ -37,12 +37,24 @@ import java.util.Random
 
 class FloatingService : Service() {
 
+    companion object {
+        var instance: FloatingService? = null
+
+        /** Screenshot ke waqt Jarvi ko chhupana taaki wo button ko na dhake */
+        fun hideForShot(hide: Boolean) {
+            val s = instance ?: return
+            s.handler.post {
+                s.floatView?.visibility = if (hide) View.INVISIBLE else View.VISIBLE
+            }
+        }
+    }
+
     private var wm: WindowManager? = null
-    private var floatView: View? = null
+    var floatView: View? = null
     private var bubble: TextView? = null
     private var pet: PetAnimator? = null
     private lateinit var params: WindowManager.LayoutParams
-    private val handler = Handler(Looper.getMainLooper())
+    val handler = Handler(Looper.getMainLooper())
     private val rnd = Random()
 
     private var walkAnim: ValueAnimator? = null
@@ -52,6 +64,7 @@ class FloatingService : Service() {
     private var dragging = false
     private var listening = false
     private var lastTouch = System.currentTimeMillis()
+    private var accWarnAt = 0L
 
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
@@ -65,8 +78,30 @@ class FloatingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private fun installCrashLogger() {
+        val old = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler(object : Thread.UncaughtExceptionHandler {
+            override fun uncaughtException(t: Thread, e: Throwable) {
+                try {
+                    val sw = java.io.StringWriter()
+                    e.printStackTrace(java.io.PrintWriter(sw))
+                    getSharedPreferences("jarvis", MODE_PRIVATE).edit()
+                        .putString("crash", (java.util.Date().toString() + "\n" + sw.toString()).take(900))
+                        .commit()
+                } catch (x: Exception) {
+                }
+                // Background thread ki galti se poora app (aur Accessibility) na gire
+                if (t === Looper.getMainLooper().thread) {
+                    old?.uncaughtException(t, e)
+                }
+            }
+        })
+    }
+
     override fun onCreate() {
         super.onCreate()
+        instance = this
+        installCrashLogger()
         tts = TextToSpeech(applicationContext, TextToSpeech.OnInitListener { status ->
             if (status == TextToSpeech.SUCCESS) {
                 val t = tts
@@ -395,14 +430,19 @@ class FloatingService : Service() {
         val key = getSharedPreferences("jarvis", MODE_PRIVATE)
             .getString("api_key", "") ?: ""
         Thread {
-            val r = GeminiClient.askSmart(applicationContext, key, snapshot)
+            var r = "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
+            try {
+                r = GeminiClient.askSmart(applicationContext, key, snapshot)
+            } catch (e: Exception) {
+            }
+            val finalReply = r
             handler.post {
-                history.add(Pair("model", r))
+                history.add(Pair("model", finalReply))
                 while (history.size > 16) {
                     history.removeAt(0)
                     history.removeAt(0)
                 }
-                reply(r)
+                reply(finalReply)
             }
         }.start()
     }
@@ -423,11 +463,26 @@ class FloatingService : Service() {
         startActivity(i)
     }
 
+    // ---------- Accessibility atak gayi to bata do ----------
+    private fun checkAccessibility() {
+        val enabled = Settings.Secure.getString(
+            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: ""
+        if (enabled.contains(packageName) && JarvisAccessibilityService.instance == null) {
+            val now = System.currentTimeMillis()
+            if (now - accWarnAt > 600000L) {
+                accWarnAt = now
+                say("Accessibility atak gayi 😕 Settings mein OFF phir ON karo", 7000L)
+            }
+        }
+    }
+
     // ---------- Khud se kuch karna ----------
     private val auto = object : Runnable {
         override fun run() {
             val p = pet
             if (p != null && !dragging && !listening && !p.isSleeping()) {
+                checkAccessibility()
                 if (System.currentTimeMillis() - lastTouch > 120000) {
                     hideBubbleNow()
                     p.sleep()
@@ -475,6 +530,7 @@ class FloatingService : Service() {
     }
 
     override fun onDestroy() {
+        instance = null
         handler.removeCallbacksAndMessages(null)
         walkAnim?.cancel()
         try {
