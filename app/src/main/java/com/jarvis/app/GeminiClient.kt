@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit
 object GeminiClient {
 
     // Agar ye model kabhi band ho jaye to yahan naam badal dena
-    private const val MODEL = "gemini-2.5-flash"
+    private const val MODEL = "gemini-3.8-flash"
 
     private const val SYSTEM_PROMPT =
         "Tumhara naam Jarvi hai. Tum ek pyari, friendly AI dost ho. " +
