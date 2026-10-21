@@ -18,19 +18,47 @@ object CommandHandler {
         "maps" to "com.google.android.apps.maps"
     )
 
-    private val fillerWords = listOf(
-        "kholo", "khol", "open", "karo", "kar", "do", "dena", "jao",
-        "ko", "app", "please", "jarvis", "jarvi", "click", "tap", "dabao"
+    // Hindi akshar ko English shabdon mein badalna
+    private val replacements = listOf(
+        "यूट्यूब" to "youtube", "यूट्युब" to "youtube", "युटुब" to "youtube",
+        "यूटूब" to "youtube", "यूटयूब" to "youtube", "यू ट्यूब" to "youtube",
+        "व्हाट्सएप" to "whatsapp", "व्हाट्सऐप" to "whatsapp", "वॉट्सऐप" to "whatsapp",
+        "व्हाट्सअप" to "whatsapp", "वाट्सएप" to "whatsapp", "वाट्सऐप" to "whatsapp",
+        "इंस्टाग्राम" to "instagram", "क्रोम" to "chrome", "कैमरा" to "camera",
+        "फेसबुक" to "facebook", "टेलीग्राम" to "telegram", "जीमेल" to "gmail",
+        "मैप्स" to "maps", "मैप" to "maps",
+        "खोलो" to "kholo", "खोलिए" to "kholo", "खोल दो" to "kholo", "खोल" to "kholo",
+        "ओपन" to "kholo", "चालू" to "kholo", "शुरू" to "kholo", "चलाओ" to "kholo",
+        "बैक" to "back", "पीछे" to "peeche", "होम" to "home",
+        "स्क्रॉल" to "scroll", "स्क्रोल" to "scroll", "क्लिक" to "click", "टैप" to "tap",
+        "नीचे" to "neeche", "ऊपर" to "upar", "रिसेंट" to "recent",
+        "जार्वी" to "jarvi", "जारवी" to "jarvi", "जार्विस" to "jarvis",
+        "जर्विस" to "jarvis", "जारविस" to "jarvis"
     )
+
+    private val fillerWords = listOf(
+        "kholo", "khol", "kholna", "open", "karo", "kar", "do", "dena", "jao", "ko", "app",
+        "please", "jarvis", "jarvi", "click", "tap", "dabao", "hey", "mere", "liye", "zara",
+        "na", "करो", "कर", "दो", "हे", "मेरे", "लिए", "प्लीज", "प्लीज़", "ज़रा", "जरा", "को"
+    )
+
+    private fun normalize(raw: String): String {
+        var s = raw.lowercase().trim()
+        for ((a, b) in replacements) {
+            s = s.replace(a, b)
+        }
+        s = s.replace(Regex("[,.!?।]"), " ")
+        s = s.replace(Regex("\\s+"), " ").trim()
+        return s
+    }
 
     /** Command mila to reply text lautao, nahi mila to null (tab Gemini se baat hogi) */
     fun handle(context: Context, raw: String): String? {
-        val t = raw.lowercase().trim()
+        val t = normalize(raw)
+        val wordCount = t.split(" ").filter { it.isNotBlank() }.size
 
         // App kholo
-        if (t.contains("kholo") || t.contains("khol ") || t.endsWith("khol") ||
-            t.startsWith("open ")
-        ) {
+        if ((t.contains("khol") || t.startsWith("open ")) && wordCount <= 8) {
             val name = cleanName(t)
             if (name.contains("camera")) {
                 return launchIntent(
@@ -41,12 +69,12 @@ object CommandHandler {
             return openApp(context, name)
         }
 
-        // Phone control (Accessibility chahiye)
+        // Phone control (Accessibility chahiye) - sirf chhote commands par
         val isControl = t.contains("back") || t.contains("home") ||
             t.contains("scroll") || t.contains("click") || t.contains("tap") ||
-            t.contains("recent")
+            t.contains("recent") || t.contains("peeche")
 
-        if (isControl) {
+        if (isControl && wordCount <= 6) {
             val svc = JarvisAccessibilityService.instance
                 ?: return "Pehle Permissions mein Accessibility Service allow karo 🔐"
 
@@ -60,9 +88,8 @@ object CommandHandler {
                 t.contains("recent") -> {
                     svc.openRecents(); "Recent apps khol diye!"
                 }
-                t.contains("scroll") || t.contains("niche") || t.contains("neeche") ||
-                    t.contains("upar") -> {
-                    if (t.contains("upar") || t.contains("up")) {
+                t.contains("scroll") || t.contains("neeche") || t.contains("upar") -> {
+                    if (t.contains("upar") || t.contains(" up")) {
                         svc.scrollUp(); "Upar scroll kar diya!"
                     } else {
                         svc.scrollDown(); "Neeche scroll kar diya!"
