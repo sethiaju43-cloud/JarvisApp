@@ -3,6 +3,7 @@ package com.jarvis.app
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -28,9 +29,13 @@ object CommandHandler {
         "व्हाट्सअप" to "whatsapp", "वाट्सएप" to "whatsapp", "वाट्सऐप" to "whatsapp",
         "इंस्टाग्राम" to "instagram", "क्रोम" to "chrome", "कैमरा" to "camera",
         "फेसबुक" to "facebook", "टेलीग्राम" to "telegram", "जीमेल" to "gmail",
-        "मैप्स" to "maps", "मैप" to "maps",
+        "मैप्स" to "maps", "मैप" to "maps", "गूगल" to "google",
         "खोलो" to "kholo", "खोलिए" to "kholo", "खोल दो" to "kholo", "खोल" to "kholo",
         "ओपन" to "kholo", "चालू" to "kholo", "शुरू" to "kholo", "चलाओ" to "kholo",
+        "सर्च" to "search", "ढूंढो" to "search", "ढूँढो" to "search", "ढूंढ" to "search",
+        "ढूँढ" to "search", "खोजो" to "search", "खोजिए" to "search", "खोजें" to "search",
+        "पढ़" to "padh", "पढ" to "padh", "स्क्रीन" to "screen", "सुनाओ" to "sunao",
+        "बताओ" to "batao", "क्या लिखा" to "kya likha",
         "बैक" to "back", "पीछे" to "peeche", "होम" to "home",
         "स्क्रॉल" to "scroll", "स्क्रोल" to "scroll", "क्लिक" to "click", "टैप" to "tap",
         "नीचे" to "neeche", "ऊपर" to "upar", "रिसेंट" to "recent",
@@ -44,6 +49,14 @@ object CommandHandler {
         "na", "करो", "कर", "दो", "हे", "मेरे", "लिए", "प्लीज", "प्लीज़", "ज़रा", "जरा", "को"
     )
 
+    private val searchStop = listOf(
+        "search", "youtube", "google", "chrome", "par", "pe", "mein", "me", "ka", "ki", "ke",
+        "ko", "karo", "kar", "do", "dena", "kholo", "mere", "liye", "jarvi", "jarvis", "hey",
+        "please", "zara", "na", "karke", "dhundo", "dikhao",
+        "पर", "में", "का", "की", "के", "को", "करो", "कर", "दो", "हे", "मेरे", "लिए",
+        "प्लीज", "जरा", "ज़रा"
+    )
+
     private fun normalize(raw: String): String {
         var s = raw.lowercase().trim()
         for ((a, b) in replacements) {
@@ -54,10 +67,33 @@ object CommandHandler {
         return s
     }
 
+    /** Kya user screen padhne ko keh raha hai? */
+    fun wantsScreen(raw: String): Boolean {
+        val t = normalize(raw)
+        val n = t.split(" ").filter { it.isNotBlank() }.size
+        if (n > 12) return false
+        if (t.contains("padhai")) return false
+        if (t.contains("padh")) return true
+        if (t.contains("kya likha")) return true
+        if (t.contains("screen") &&
+            (t.contains("sunao") || t.contains("batao") || t.contains("dekho"))
+        ) return true
+        return false
+    }
+
     /** Seedha command mila to reply lautao, nahi mila to null (tab Gemini samjhega) */
     fun handle(context: Context, raw: String): String? {
         val t = normalize(raw)
         val wordCount = t.split(" ").filter { it.isNotBlank() }.size
+
+        // YouTube ya Google par search
+        if (t.contains("search") && wordCount <= 12) {
+            val q = searchQuery(t)
+            if (q.isNotBlank()) {
+                if (t.contains("youtube")) return openYoutubeSearch(context, q)
+                if (t.contains("google") || t.contains("chrome")) return openWebSearch(context, q)
+            }
+        }
 
         // App kholo
         if ((t.contains("khol") || t.startsWith("open ")) && wordCount <= 8) {
@@ -71,6 +107,15 @@ object CommandHandler {
             val r = openApp(context, name)
             if (r != null) return r
             // Nahi mila to Gemini samjhega
+        }
+
+        // Screen padhna: Accessibility chahiye, padhne ka kaam Gemini karega
+        if (wantsScreen(raw)) {
+            return if (JarvisAccessibilityService.instance == null) {
+                "Screen padhne ke liye Permissions mein Accessibility allow karo 🔐"
+            } else {
+                null
+            }
         }
 
         // Phone control (Accessibility chahiye) - sirf chhote commands par
@@ -207,6 +252,30 @@ object CommandHandler {
     private fun cleanName(t: String): String {
         val words = t.split(" ").filter { it.isNotBlank() && it !in fillerWords }
         return words.joinToString(" ").trim()
+    }
+
+    private fun searchQuery(t: String): String {
+        val words = t.split(" ").filter { it.isNotBlank() && it !in searchStop }
+        return words.joinToString(" ").trim()
+    }
+
+    private fun openYoutubeSearch(context: Context, q: String): String {
+        val i = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://www.youtube.com/results?search_query=" + Uri.encode(q))
+        )
+        if (context.packageManager.getLaunchIntentForPackage("com.google.android.youtube") != null) {
+            i.setPackage("com.google.android.youtube")
+        }
+        return launchIntent(context, i, "YouTube par '" + q + "' search kar diya! 🔎")
+    }
+
+    private fun openWebSearch(context: Context, q: String): String {
+        val i = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("https://www.google.com/search?q=" + Uri.encode(q))
+        )
+        return launchIntent(context, i, "Google par '" + q + "' search kar diya! 🔎")
     }
 
     private fun openApp(context: Context, name: String): String? {
