@@ -63,6 +63,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 tts?.setLanguage(Locale.getDefault())
                 ttsReady = true
             }
+            tts?.setPitch(1.25f)
         }
     }
 
@@ -91,7 +92,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun sendMessage(text: String) {
         addMessage(text, true)
 
-        // Pehle check karo ki ye phone control command hai ya nahi
+        // Pehle seedha command check karo (app kholna, back, home...)
         val cmdReply = CommandHandler.handle(this, text)
         if (cmdReply != null) {
             addMessage(cmdReply, false)
@@ -99,14 +100,14 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             return
         }
 
-        // Command nahi hai to Gemini se baat karo
+        // Seedha command nahi mila to Gemini samjhega aur jawab dega
         history.add("user" to text)
         addMessage("...", false)
         val thinkingIndex = messages.size - 1
         val key = getSharedPreferences("jarvis", MODE_PRIVATE).getString("api_key", "") ?: ""
 
         Thread {
-            val reply = GeminiClient.ask(key, history.toList())
+            val reply = GeminiClient.askSmart(this@ChatActivity, key, history.toList())
             runOnUiThread {
                 history.add("model" to reply)
                 messages[thinkingIndex] = ChatMessage(reply, false)
