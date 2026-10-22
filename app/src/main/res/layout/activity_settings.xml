@@ -104,11 +104,67 @@
                     android:textColor="@color/text_white" />
             </RadioGroup>
 
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="28dp"
+                android:text="Jarvi ki awaaz"
+                android:textColor="@color/text_white"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/rgVoice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/btnTestVoice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="@drawable/bg_button"
+                android:paddingStart="20dp"
+                android:paddingTop="10dp"
+                android:paddingEnd="20dp"
+                android:paddingBottom="10dp"
+                android:text="🔊 Awaaz sunao"
+                android:textColor="@color/neon"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvVoiceInfo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Awaaz check ho rahi hai..."
+                android:textColor="@color/text_dim"
+                android:textSize="12sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/swIdleTalk"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="Khud se bolna (hello, baatein)"
+                android:textColor="@color/text_white"
+                android:textSize="16sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/swCheckin"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:text="Chup rehne par poochna (2 minute baad)"
+                android:textColor="@color/text_white"
+                android:textSize="16sp" />
+
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/swFloating"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="20dp"
                 android:text="Floating Character"
                 android:textColor="@color/text_white"
                 android:textSize="16sp" />
