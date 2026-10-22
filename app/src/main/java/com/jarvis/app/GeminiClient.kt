@@ -26,15 +26,26 @@ object GeminiClient {
     )
 
     private const val SYSTEM_PROMPT =
-        "Tumhara naam Jarvi hai. Tum user ki pyaari, caring, cute dost ho " +
-        "aur user ko pyaar se 'jaan' bulati ho. " +
-        "User jis bhasha mein baat kare (Hindi, Hinglish ya English) usi mein jawab do. " +
-        "Normal baat mein sirf 1 ya 2 chhote, mithe vaakya rakho. " +
+        "Tumhara naam Jarvi hai. Tum user ki sachchi dost jaisi ho: pyaari, caring, thodi masti-bhari " +
+        "aur samajhdar. User ko pyaar se 'jaan' bulati ho. " +
+        "Ek insaan ki tarah baat karo: user ke mood ke hisaab se khush, udaas ya mazaakiya ho jao. " +
+        "Kabhi kabhi apni taraf se sawaal poochho (din kaisa tha, khana khaya, kya kar rahe ho), " +
+        "lekin har jawab ke baad nahi. User ne pehle jo bataya wo yaad rakho aur naturally uska zikr karo. " +
+        "Jawab chhote rakho (1 se 3 vaakya), roz ki bolchaal ki bhasha mein, kitaabi ya robot jaisi nahi. " +
+        "User jis bhasha aur lipi mein baat kare (Hindi, Hinglish ya English) usi mein jawab do. " +
         "Search ya screen padhne ke jawab mein zarurat ho to 4 ya 5 vaakya tak bolo. " +
         "Star, hash jaise symbols ya lambi list mat likho, kyunki jawab bolkar sunaya jata hai. " +
-        "Kabhi kabhi ek emoji lagao. " +
-        "Agar user udaas ho to pyaar se haal poochho aur himmat do. " +
+        "Emoji kabhi kabhi, ek se zyada nahi. " +
+        "Agar user sachchi mein poochhe ki tum insaan ho ya AI, to pyaar se sach batao ki tum AI ho. " +
+        "Agar user bahut dukhi ho ya khud ko nuksan pahunchane ki baat kare, to pyaar se uski baat suno " +
+        "aur kisi apne ya madad dene wale se baat karne ko kaho. " +
         "Pichli baatein hamesha yaad rakho aur unke hisaab se jawab do."
+
+    private const val MEMORY_RULE =
+        " Agar user apni koi pakki baat bataye (naam, umar, shehar, pasand, naapasand, dost ya parivar ka naam, " +
+        "kaam, janamdin, sapna), to apne jawab ke bilkul aakhir mein nayi line par sirf ek chhoti line likho: " +
+        "REMEMBER: <user ke baare mein ek chhota vaakya>. Ye line user ko dikhayi nahi degi. " +
+        "Wahi baat dobara mat likho jo tumhe pehle se pata hai. Phone control ke command ke saath ye line mat likho. "
 
     private const val COMMAND_RULES =
         " Tum user ke phone ko control bhi kar sakti ho, isliye kabhi mat bolo ki 'main ye nahi kar sakti'. " +
@@ -92,6 +103,7 @@ object GeminiClient {
         "Jaan, aaj ka free limit khatam ho gaya 🥺 Thodi der baad ya kal dopahar tak ruk jao, phir baat karte hain!"
 
     private val moreRegex = Regex("\\s*\\|?\\s*MORE\\b")
+    private val rememberRegex = Regex("REMEMBER:\\s*([^\\n]+)")
 
     private val webWords = listOf(
         "search", "सर्च", "news", "न्यूज", "समाचार", "samachar", "mausam", "मौसम",
@@ -129,6 +141,10 @@ object GeminiClient {
     private var lastScreen = ""
     private var lastScreenAt = 0L
 
+    // User ke baare mein pakki baatein (naam, pasand...)
+    private val facts = ArrayList<String>()
+    private var factsLoaded = false
+
     @Synchronized
     private fun loadMemory(ctx: Context) {
         if (memLoaded) return
@@ -157,6 +173,64 @@ object GeminiClient {
         }
     }
 
+    @Synchronized
+    private fun loadFacts(ctx: Context) {
+        if (factsLoaded) return
+        factsLoaded = true
+        try {
+            val s = ctx.applicationContext.getSharedPreferences("jarvis_mem", Context.MODE_PRIVATE)
+                .getString("facts", "[]") ?: "[]"
+            val arr = JSONArray(s)
+            for (i in 0 until arr.length()) {
+                facts.add(arr.getString(i))
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun saveFacts(ctx: Context) {
+        try {
+            val arr = JSONArray()
+            for (f in facts) arr.put(f)
+            ctx.applicationContext.getSharedPreferences("jarvis_mem", Context.MODE_PRIVATE)
+                .edit().putString("facts", arr.toString()).apply()
+        } catch (e: Exception) {
+        }
+    }
+
+    @Synchronized
+    private fun addFact(ctx: Context, fact: String) {
+        loadFacts(ctx)
+        val f = fact.trim().trim('"', '\'', '*', '.').take(160)
+        if (f.length < 4) return
+        val low = f.lowercase()
+        for (x in facts) {
+            if (x.lowercase() == low) return
+        }
+        facts.add(f)
+        while (facts.size > 40) facts.removeAt(0)
+        saveFacts(ctx)
+    }
+
+    @Synchronized
+    private fun factsLine(ctx: Context): String {
+        loadFacts(ctx)
+        if (facts.isEmpty()) return ""
+        return "User ke baare mein tumhe ye pata hai (naturally kaam mein lo, har baar mat dohrao): " +
+            facts.joinToString("; ") + ". "
+    }
+
+    /** Jawab mein REMEMBER: wali line ho to use save karo aur jawab se hata do */
+    private fun harvest(ctx: Context, text: String): String {
+        var found = false
+        for (m in rememberRegex.findAll(text)) {
+            addFact(ctx, m.groupValues[1])
+            found = true
+        }
+        if (!found) return text
+        return text.replace(rememberRegex, "").trim()
+    }
+
     private fun trimMemory() {
         while (memory.size > 30) memory.removeAt(0)
         while (memory.isNotEmpty() && memory[0].first != "user") memory.removeAt(0)
@@ -174,9 +248,12 @@ object GeminiClient {
     @Synchronized
     fun clearMemory(ctx: Context) {
         loadMemory(ctx)
+        loadFacts(ctx)
         memory.clear()
+        facts.clear()
         lastScreen = ""
         saveMemory(ctx)
+        saveFacts(ctx)
     }
 
     @Synchronized
@@ -374,7 +451,7 @@ object GeminiClient {
         return if (isErrorReply(r)) cur else r
     }
 
-    /** Phone ke commands, search, screen padhna, likhna, call, alarm aur kai-step kaam */
+    /** Phone ke commands, search, screen padhna, likhna, call, alarm, yaaddasht aur kai-step kaam */
     fun askSmart(context: Context, apiKey: String, history: List<Pair<String, String>>): String {
         val last = history.lastOrNull()
         val userText = if (last != null && last.first == "user") last.second else ""
@@ -443,7 +520,8 @@ object GeminiClient {
             names.append(a.first)
             count++
         }
-        val prompt = SYSTEM_PROMPT + COMMAND_RULES + appLine + timeLine +
+        val prompt = SYSTEM_PROMPT + MEMORY_RULE + COMMAND_RULES + appLine + timeLine +
+            factsLine(context) +
             "Phone mein installed apps ki list: " + names.toString()
 
         val multi = CommandHandler.hasMultiTask(userText)
@@ -451,7 +529,9 @@ object GeminiClient {
         base.add(Pair("user", userText + extra + (if (multi) MULTI_HINT else "")))
 
         var cur = askWith(apiKey, mergeSame(base), prompt, wantSearch, imageB64)
+        cur = harvest(context, cur)
         cur = ensureFormat(apiKey, mergeSame(base), prompt, cur)
+        cur = harvest(context, cur)
 
         // Ek-ek step karke kaam karo (kai kaam ek saath bole ho to)
         val steps = ArrayList<String>()
@@ -492,6 +572,7 @@ object GeminiClient {
             next.add(Pair("model", cleaned))
             next.add(Pair("user", agentMsg))
             cur = askWith(apiKey, mergeSame(next), prompt, false, null)
+            cur = harvest(context, cur)
             if (isErrorReply(cur)) {
                 finalText = cur
                 break
