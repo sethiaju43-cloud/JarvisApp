@@ -16,6 +16,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
@@ -32,7 +33,6 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import java.util.Locale
 import java.util.Random
 
 class FloatingService : Service() {
@@ -63,7 +63,11 @@ class FloatingService : Service() {
     private var shiftY = 0
     private var dragging = false
     private var listening = false
+    private var autoMode = false
+    private var wantListenAfter = false
     private var lastTouch = System.currentTimeMillis()
+    private var checkinAt = 0L
+    private var lastIdleSpeak = 0L
     private var accWarnAt = 0L
 
     private var recognizer: SpeechRecognizer? = null
@@ -74,6 +78,14 @@ class FloatingService : Service() {
     private val idleLines = listOf(
         "Hello jaan! 😊", "Kya kar rahe ho? 😀", "Main yahan hun! 🙌",
         "Bore ho rahe ho? 🤔", "Mujhse baat karo na 💕"
+    )
+
+    private val checkinLines = listOf(
+        "Jaan, kya hua? Itni der se chup ho, sab theek hai na?",
+        "Arre jaan, itne udaas kyon ho? Mujhse baat karo na.",
+        "Kya soch rahe ho jaan? Bolo na, main sun rahi hun.",
+        "Jaan, bore ho rahe ho kya? Chalo kuch baat karte hain.",
+        "Aaj tum bahut shant ho jaan, sab theek to hai na?"
     )
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -106,23 +118,24 @@ class FloatingService : Service() {
             if (status == TextToSpeech.SUCCESS) {
                 val t = tts
                 if (t != null) {
-                    val r = t.setLanguage(Locale("hi", "IN"))
-                    if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
-                        t.setLanguage(Locale.getDefault())
-                    }
-                    t.setPitch(1.25f)
-                    t.setSpeechRate(1.0f)
+                    VoiceHelper.apply(applicationContext, t)
                     t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                         override fun onStart(utteranceId: String?) {
                             handler.post { pet?.talk(60000) }
                         }
 
                         override fun onDone(utteranceId: String?) {
-                            handler.post { calm() }
+                            handler.post {
+                                calm()
+                                maybeAutoListen()
+                            }
                         }
 
                         override fun onError(utteranceId: String?) {
-                            handler.post { calm() }
+                            handler.post {
+                                wantListenAfter = false
+                                calm()
+                            }
                         }
                     })
                     ttsReady = true
@@ -254,9 +267,8 @@ class FloatingService : Service() {
 
         wm?.addView(v, params)
         handler.postDelayed({
-            say("Hello jaan! 😊", 2500L)
-            pet?.wave(2400)
-        }, 1000)
+            speakOut("Hello jaan! 😊")
+        }, 1200)
         handler.postDelayed(auto, 9000)
     }
 
@@ -308,7 +320,43 @@ class FloatingService : Service() {
         pet?.show("talk_closed")
     }
 
-    // ---------- Tap par sunna ----------
+    // ---------- Bolna ----------
+    /** Emoji aur symbols hata do taaki awaaz mein "heart eyes" jaisa na bole */
+    private fun speakable(s: String): String {
+        var t = s.replace(Regex("[\\p{So}\\p{Cn}\\uFE0F\\u200D]"), " ")
+        t = t.replace("*", "").replace("#", "").replace("_", " ")
+        t = t.replace(Regex("\\s+"), " ").trim()
+        if (t.isEmpty()) t = "Ji"
+        return t.take(3500)
+    }
+
+    /** Bubble mein dikhao aur bolkar bhi sunao (user ki baat ka jawab nahi, khud se) */
+    private fun speakOut(text: String) {
+        say(text, 2500L + text.length * 70L)
+        val t = tts
+        if (t != null && ttsReady) {
+            VoiceHelper.apply(applicationContext, t)
+            t.speak(speakable(text), TextToSpeech.QUEUE_FLUSH, null, "jarvi")
+        } else {
+            pet?.talk(2500)
+        }
+    }
+
+    /** User ki baat ka jawab */
+    private fun reply(text: String) {
+        lastTouch = System.currentTimeMillis()
+        speakOut(text)
+    }
+
+    private fun stopSpeaking() {
+        wantListenAfter = false
+        try {
+            tts?.stop()
+        } catch (e: Exception) {
+        }
+    }
+
+    // ---------- Sunna ----------
     private fun onPetTapped() {
         lastTouch = System.currentTimeMillis()
         val p = pet ?: return
@@ -318,10 +366,18 @@ class FloatingService : Service() {
         }
         if (p.isSleeping()) p.wake()
         stopSpeaking()
-        startListening()
+        startListening(false)
     }
 
-    private fun startListening() {
+    private fun maybeAutoListen() {
+        if (!wantListenAfter) return
+        wantListenAfter = false
+        val p = pet ?: return
+        if (listening || dragging || p.isSleeping()) return
+        startListening(true)
+    }
+
+    private fun startListening(auto: Boolean) {
         val micOk = ContextCompat.checkSelfPermission(
             this, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
@@ -334,6 +390,7 @@ class FloatingService : Service() {
             return
         }
         listening = true
+        autoMode = auto
         say("Bolo jaan... 🎤", 10000L)
         pet?.think(30000)
 
@@ -353,8 +410,15 @@ class FloatingService : Service() {
             override fun onError(error: Int) {
                 if (!listening) return
                 listening = false
+                val wasAuto = autoMode
+                autoMode = false
                 destroyRecognizer()
                 calm()
+                if (wasAuto) {
+                    // Khud se poochha tha aur user ne kuch nahi bola: chupchaap band
+                    hideBubbleNow()
+                    return
+                }
                 if (error == SpeechRecognizer.ERROR_NO_MATCH ||
                     error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
                 ) {
@@ -368,6 +432,7 @@ class FloatingService : Service() {
 
             override fun onResults(results: Bundle?) {
                 listening = false
+                autoMode = false
                 destroyRecognizer()
                 val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val text = list?.firstOrNull()
@@ -391,6 +456,7 @@ class FloatingService : Service() {
 
     private fun cancelListening() {
         listening = false
+        autoMode = false
         destroyRecognizer()
         calm()
         hideBubbleNow()
@@ -407,15 +473,9 @@ class FloatingService : Service() {
         }
     }
 
-    private fun stopSpeaking() {
-        try {
-            tts?.stop()
-        } catch (e: Exception) {
-        }
-    }
-
     // ---------- Jo bola use samajhna ----------
     private fun handleSpoken(text: String) {
+        lastTouch = System.currentTimeMillis()
         pet?.think(30000)
         say("Soch rahi hun... 💭", 20000L)
 
@@ -447,16 +507,6 @@ class FloatingService : Service() {
         }.start()
     }
 
-    private fun reply(text: String) {
-        say(text, 2500L + text.length * 70L)
-        val t = tts
-        if (t != null && ttsReady) {
-            t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvi")
-        } else {
-            pet?.talk(2500)
-        }
-    }
-
     private fun openChat() {
         val i = Intent(this, ChatActivity::class.java)
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -477,27 +527,56 @@ class FloatingService : Service() {
         }
     }
 
+    // ---------- Chup rehne par poochna ----------
+    private fun checkin() {
+        checkinAt = System.currentTimeMillis()
+        val t = tts
+        wantListenAfter = (t != null && ttsReady)
+        speakOut(checkinLines[rnd.nextInt(checkinLines.size)] + " 🥺")
+    }
+
     // ---------- Khud se kuch karna ----------
     private val auto = object : Runnable {
         override fun run() {
             val p = pet
-            if (p != null && !dragging && !listening && !p.isSleeping()) {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            val now = System.currentTimeMillis()
+            if (!pm.isInteractive) {
+                // Screen band hai: kuch nahi bolna, aur ginti dobara shuru
+                lastTouch = now
+            } else if (p != null && !dragging && !listening) {
                 checkAccessibility()
-                if (System.currentTimeMillis() - lastTouch > 120000) {
-                    hideBubbleNow()
-                    p.sleep()
-                    say("Zzz... 😴", 2500L)
-                } else if (!p.busy) {
-                    when (rnd.nextInt(3)) {
-                        0 -> {
-                            say(idleLines[rnd.nextInt(idleLines.size)], 2600L)
-                            p.wave(2600)
+                val idleFor = now - lastTouch
+                if (!p.isSleeping()) {
+                    val prefs = getSharedPreferences("jarvis", MODE_PRIVATE)
+                    val checkOn = prefs.getBoolean("checkin", true)
+                    val talkOn = prefs.getBoolean("idle_talk", true)
+                    if (idleFor > 600000L) {
+                        hideBubbleNow()
+                        p.sleep()
+                        say("Zzz... 😴", 2500L)
+                    } else if (!p.busy) {
+                        if (checkOn && idleFor > 120000L && now - checkinAt > 300000L) {
+                            checkin()
+                        } else {
+                            when (rnd.nextInt(6)) {
+                                0 -> {
+                                    if (talkOn && now - lastIdleSpeak > 60000L) {
+                                        lastIdleSpeak = now
+                                        speakOut(idleLines[rnd.nextInt(idleLines.size)])
+                                    } else {
+                                        p.wave(2600)
+                                    }
+                                }
+                                1 -> {
+                                    say(idleLines[rnd.nextInt(idleLines.size)], 2600L)
+                                    p.wave(2600)
+                                }
+                                2, 3 -> walkRandom()
+                                else -> {
+                                }
+                            }
                         }
-                        1 -> {
-                            say(idleLines[rnd.nextInt(idleLines.size)], 3000L)
-                            p.talk(3000)
-                        }
-                        else -> walkRandom()
                     }
                 }
             }
