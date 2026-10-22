@@ -144,6 +144,12 @@ object CommandHandler {
         return false
     }
 
+    /** Kya vaakya mein kai kaam jude hue hain (aur, phir...)? */
+    fun hasMultiTask(raw: String): Boolean {
+        val padded = " " + normalize(raw) + " "
+        return connectors.any { padded.contains(it) }
+    }
+
     /** Seedha command mila to reply lautao, nahi mila to null (tab Gemini samjhega) */
     fun handle(context: Context, raw: String): String? {
         val r = handleInner(context, raw)
@@ -169,8 +175,7 @@ object CommandHandler {
         }
 
         // Ek saath kai kaam: Gemini ek-ek step karke karega
-        val padded = " " + t + " "
-        if (connectors.any { padded.contains(it) }) return null
+        if (hasMultiTask(raw)) return null
 
         // YouTube ya Google par search
         if (t.contains("search") && wordCount <= 12) {
@@ -315,7 +320,7 @@ object CommandHandler {
             nap(300)
             petHidden(false)
             return (if (fwd) "Video aage " else "Video peeche ") + (times * 10) +
-                " second kar diya ⏩ (YouTube ek baar mein 10 second badhata hai)"
+                " second karne ki koshish ki ⏩ (YouTube ek baar mein 10 second badhata hai)"
         }
 
         if (up.startsWith("TYPE")) {
@@ -361,6 +366,15 @@ object CommandHandler {
     private fun doFullscreen(context: Context, svc: JarvisAccessibilityService): String {
         petHidden(true)
         nap(250)
+        // Comments ya description ki patti khuli ho to pehle use band karo (wo button ko dhakti hai)
+        val txt = svc.readScreenText()
+        val panelOpen = (txt.contains("Comments") &&
+            (txt.contains("Newest") || txt.contains("Add a comment") || txt.contains("Comment…"))) ||
+            txt.contains("Add a comment")
+        if (panelOpen) {
+            svc.goBack()
+            nap(900)
+        }
         val ok = svc.enterFullscreen()
         nap(300)
         petHidden(false)
@@ -388,7 +402,11 @@ object CommandHandler {
         i.putExtra(AlarmClock.EXTRA_MINUTES, min)
         i.putExtra(AlarmClock.EXTRA_MESSAGE, "Jarvi alarm")
         i.putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-        return launchIntent(context, i, "Alarm laga diya ⏰ " + String.format("%02d:%02d", h, min))
+        return launchIntent(
+            context, i,
+            "Alarm bhej diya ⏰ " + String.format("%02d:%02d", h, min) +
+                " (Clock app mein ek baar dekh lena)"
+        )
     }
 
     private fun setTimer(context: Context, arg: String): String {
@@ -399,7 +417,7 @@ object CommandHandler {
         i.putExtra(AlarmClock.EXTRA_LENGTH, secs)
         i.putExtra(AlarmClock.EXTRA_MESSAGE, "Jarvi timer")
         i.putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-        return launchIntent(context, i, "Timer laga diya ⏱️ " + secs + " second")
+        return launchIntent(context, i, "Timer bhej diya ⏱️ " + secs + " second")
     }
 
     // ---------- Call ----------
