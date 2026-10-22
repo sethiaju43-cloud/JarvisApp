@@ -51,8 +51,9 @@ object GeminiClient {
         "Agar user ne 'is number par call karo' bola aur number screen par likha ho, " +
         "to [SCREEN TEXT] se wo number nikaal kar ACTION: CALL <number> likho. " +
         "Agar user kuch likhne ya type karne ko kahe, to sirf ek line mein jawab do: ACTION: TYPE <jo likhna hai>. " +
-        "Alarm ke liye sirf ek line mein jawab do: ACTION: ALARM HH:MM (24 ghante ke format mein). " +
-        "Agar subah ya shaam na bola ho, to abhi ke time ke baad jo agla wo time aaye wahi chuno. " +
+        "Alarm ke liye sirf ek line mein jawab do: ACTION: ALARM HH:MM (24 ghante ke format mein, jaise 17:00). " +
+        "Agar user ne subah ya raat saaf na bola ho, to abhi ke time ke baad jo agla wo time aaye wahi chuno " +
+        "(jaise abhi 13:23 ho aur user '5 baje' bole to 17:00). " +
         "Timer ke liye: ACTION: TIMER <seconds mein>. " +
         "Video bada ya full screen karne ko kahe to: ACTION: FULLSCREEN. " +
         "Video aage karne ko kahe to ACTION: SEEK 10, peeche karne ko ACTION: SEEK -10 " +
@@ -64,9 +65,13 @@ object GeminiClient {
         "(menu, three dot, Shorts ya Ad wali line mat chunna). " +
         "Agar sahi naam [SCREEN TEXT] mein na mile (jaise icon, X ya game ka button), tab bhi " +
         "ACTION: CLICK <jo user ne bola wo, English mein> likho, screenshot dekhkar dhundh liya jayega. " +
-        "Agar user ek saath kai kaam bole (jaise 'YouTube kholo aur pehla video chalao aur bada karo'), " +
-        "to sirf PEHLA kaam ek line mein likho aur line ke aakhir mein ' | MORE' lagao. " +
-        "Agla kaam baad mein alag se poochha jayega. " +
+        "Agar user ek saath kai kaam bole, to sirf PEHLA kaam ek line mein likho " +
+        "aur line ke aakhir mein ' | MORE' lagao. Agla kaam baad mein alag se poochha jayega. " +
+        "Pehla kaam hamesha bilkul format mein likho (OPEN: ya ACTION: se shuru), " +
+        "kabhi bhi 'main kar rahi hun' jaisa vaakya mat likho, sirf format wali line likho. " +
+        "Jaise 'WhatsApp kholo aur detective ko message karo hello' ke steps ye honge: " +
+        "pehle 'OPEN: WhatsApp | MORE', phir 'ACTION: CLICK detective | MORE', " +
+        "phir 'ACTION: TYPE hello | MORE', phir 'ACTION: CLICK Send', phir 'DONE: ho gaya'. " +
         "Aise command par koi aur shabd mat likho. " +
         "Agar sawaal taaza jaankari ka ho (news, mausam, score, daam, kisi cheez ke baare mein search), " +
         "to Google Search se dekhkar sahi jawab do. " +
@@ -78,6 +83,10 @@ object GeminiClient {
         "Jab user poochhe ki wo kahan hai ya kaunse app mein hai, to neeche 'Abhi user is app mein hai' " +
         "mein jo naam likha ho wahi saaf bata do. " +
         "Baaki sab baat par normal pyaar se baat karo. "
+
+    private const val MULTI_HINT =
+        "\n\n(Ye kai kaam ek saath hain. Sirf PEHLA kaam bilkul format mein likho: " +
+        "OPEN: <app> ya ACTION: ... aur aakhir mein ' | MORE'. Koi aur shabd mat likho.)"
 
     private const val LIMIT_MSG =
         "Jaan, aaj ka free limit khatam ho gaya 🥺 Thodi der baad ya kal dopahar tak ruk jao, phir baat karte hain!"
@@ -95,10 +104,10 @@ object GeminiClient {
         "click", "tap", "dabao", "dabaao", "play", "chalao", "pehla", "pehli", "dusra",
         "dusri", "teesra", "teesri", "video", "select", "send", "bhejo", "bhej do",
         "type", "likho", "reply", "cancel", "ok", "clear", "hata", "band", "call",
-        "full", "bada", "aage", "peeche", "seek",
+        "full", "bada", "aage", "peeche", "seek", "message", "msg", "bhej",
         "क्लिक", "टैप", "दबाओ", "प्ले", "चलाओ", "पहला", "पहली",
         "दूसरा", "दूसरी", "तीसरा", "वीडियो", "भेजो", "लिखो", "जवाब", "सेंड",
-        "कैंसल", "ओके", "हटा", "बंद", "कॉल", "बड़ा", "आगे", "पीछे"
+        "कैंसल", "ओके", "हटा", "बंद", "कॉल", "बड़ा", "आगे", "पीछे", "मैसेज", "भेज"
     )
 
     private val followWords = listOf(
@@ -321,6 +330,50 @@ object GeminiClient {
         }
     }
 
+    /** Alarm ka time sahi karo: subah/raat na bola ho to abhi ke baad wala agla time */
+    private fun fixAlarmTime(reply: String, userText: String): String {
+        val m = Regex("ALARM\\s*([0-9]{1,2})\\s*[:.]\\s*([0-9]{2})").find(reply) ?: return reply
+        var h = m.groupValues[1].toIntOrNull() ?: return reply
+        val mi = m.groupValues[2].toIntOrNull() ?: return reply
+        val t = userText.lowercase()
+        val said = t.contains("subah") || t.contains("savere") || t.contains("morning") ||
+            t.contains("सुबह") || t.contains("सवेरे") || t.contains("तड़के") ||
+            t.contains(" am") || t.contains("a.m") ||
+            t.contains("raat") || t.contains("रात") || t.contains("shaam") ||
+            t.contains("शाम") || t.contains("dopahar") || t.contains("दोपहर") ||
+            t.contains(" pm") || t.contains("p.m")
+        if (!said && h in 1..11) {
+            val cal = java.util.Calendar.getInstance()
+            val nowMin = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 +
+                cal.get(java.util.Calendar.MINUTE)
+            if (h * 60 + mi <= nowMin) h += 12
+        }
+        return reply.replaceFirst(m.value, "ALARM " + String.format("%02d:%02d", h, mi))
+    }
+
+    /** Gemini ne MORE bola par format nahi diya to ek baar sakhti se dobara poochho */
+    private fun ensureFormat(
+        apiKey: String,
+        base: List<Pair<String, String>>,
+        prompt: String,
+        cur: String
+    ): String {
+        if (!moreRegex.containsMatchIn(cur)) return cur
+        if (cur.contains("OPEN:") || cur.contains("ACTION:")) return cur
+        val fix = ArrayList<Pair<String, String>>(base)
+        fix.add(Pair("model", cur.replace(moreRegex, "").trim()))
+        fix.add(
+            Pair(
+                "user",
+                "[AGENT] Tumne format follow nahi kiya. Ab sirf ek line likho jisme pehla kaam ho, " +
+                    "bilkul is format mein: OPEN: <app ka naam> ya ACTION: ... aur aakhir mein ' | MORE'. " +
+                    "Koi aur shabd mat likho."
+            )
+        )
+        val r = askWith(apiKey, mergeSame(fix), prompt, false, null)
+        return if (isErrorReply(r)) cur else r
+    }
+
     /** Phone ke commands, search, screen padhna, likhna, call, alarm aur kai-step kaam */
     fun askSmart(context: Context, apiKey: String, history: List<Pair<String, String>>): String {
         val last = history.lastOrNull()
@@ -393,10 +446,12 @@ object GeminiClient {
         val prompt = SYSTEM_PROMPT + COMMAND_RULES + appLine + timeLine +
             "Phone mein installed apps ki list: " + names.toString()
 
+        val multi = CommandHandler.hasMultiTask(userText)
         val base = ArrayList<Pair<String, String>>(mem)
-        base.add(Pair("user", userText + extra))
+        base.add(Pair("user", userText + extra + (if (multi) MULTI_HINT else "")))
 
         var cur = askWith(apiKey, mergeSame(base), prompt, wantSearch, imageB64)
+        cur = ensureFormat(apiKey, mergeSame(base), prompt, cur)
 
         // Ek-ek step karke kaam karo (kai kaam ek saath bole ho to)
         val steps = ArrayList<String>()
@@ -417,7 +472,7 @@ object GeminiClient {
                 break
             }
             val more = moreRegex.containsMatchIn(cur)
-            val cleaned = cur.replace(moreRegex, "").trim()
+            val cleaned = fixAlarmTime(cur.replace(moreRegex, "").trim(), userText)
             val res = CommandHandler.interpret(context, cleaned)
             steps.add(res)
             finalText = res
@@ -442,6 +497,7 @@ object GeminiClient {
                 break
             }
         }
+        finalText = finalText.replace(moreRegex, "").trim()
         if (steps.size > 1 && !viaDone && !finalText.contains("😕") && !isErrorReply(finalText)) {
             finalText = "Ho gaya jaan ✅ " + finalText
         }
