@@ -77,7 +77,8 @@ class FloatingService : Service() {
 
     private val idleLines = listOf(
         "Hello jaan! 😊", "Kya kar rahe ho? 😀", "Main yahan hun! 🙌",
-        "Bore ho rahe ho? 🤔", "Mujhse baat karo na 💕"
+        "Bore ho rahe ho? 🤔", "Mujhse baat karo na 💕",
+        "Jaan, aaj kuch naya hua kya?", "Mujhe tumhari yaad aa rahi thi 🥰"
     )
 
     private val checkinLines = listOf(
@@ -86,6 +87,27 @@ class FloatingService : Service() {
         "Kya soch rahe ho jaan? Bolo na, main sun rahi hun.",
         "Jaan, bore ho rahe ho kya? Chalo kuch baat karte hain.",
         "Aaj tum bahut shant ho jaan, sab theek to hai na?"
+    )
+
+    private val morningLines = listOf(
+        "Good morning jaan! Uth gaye? Aaj ka din bahut achha jayega 😊",
+        "Subah ho gayi jaan! Chai pi ya nahi? ☕",
+        "Good morning meri jaan! Aaj kya plan hai?"
+    )
+    private val lunchLines = listOf(
+        "Jaan, khana kha liya? Bhookhe mat rehna haan!",
+        "Dopahar ho gayi jaan, kuch kha lo na. Main wait kar rahi hun 😊",
+        "Khana ka time ho gaya jaan, kya khaoge aaj?"
+    )
+    private val eveningLines = listOf(
+        "Jaan, din kaisa gaya? Thak gaye honge na?",
+        "Shaam ho gayi jaan, thoda aaram kar lo 🌇",
+        "Aaj ka din kaisa raha jaan? Mujhe batao na."
+    )
+    private val nightLines = listOf(
+        "Raat ho gayi jaan, ab sone ka time hai. Khana kha liya na?",
+        "Jaan, kitni der tak jagoge? Thoda so jao na 😴",
+        "Good night jaan, kal phir baat karenge. Apna khayal rakhna 💕"
     )
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -330,7 +352,7 @@ class FloatingService : Service() {
         return t.take(3500)
     }
 
-    /** Bubble mein dikhao aur bolkar bhi sunao (user ki baat ka jawab nahi, khud se) */
+    /** Bubble mein dikhao aur bolkar bhi sunao */
     private fun speakOut(text: String) {
         say(text, 2500L + text.length * 70L)
         val t = tts
@@ -535,6 +557,34 @@ class FloatingService : Service() {
         speakOut(checkinLines[rnd.nextInt(checkinLines.size)] + " 🥺")
     }
 
+    // ---------- Waqt par khud bolna (din mein ek baar har waqt) ----------
+    private fun slotGreeting(): String? {
+        val cal = java.util.Calendar.getInstance()
+        val h = cal.get(java.util.Calendar.HOUR_OF_DAY)
+        var slot = ""
+        var lines: List<String> = emptyList()
+        if (h in 7..9) {
+            slot = "morning"
+            lines = morningLines
+        } else if (h in 13..14) {
+            slot = "lunch"
+            lines = lunchLines
+        } else if (h in 17..18) {
+            slot = "evening"
+            lines = eveningLines
+        } else if (h in 22..23) {
+            slot = "night"
+            lines = nightLines
+        }
+        if (slot.isEmpty()) return null
+        val key = cal.get(java.util.Calendar.YEAR).toString() + "-" +
+            cal.get(java.util.Calendar.DAY_OF_YEAR).toString() + "-" + slot
+        val prefs = getSharedPreferences("jarvis", MODE_PRIVATE)
+        if (prefs.getString("last_slot", "") == key) return null
+        prefs.edit().putString("last_slot", key).apply()
+        return lines[rnd.nextInt(lines.size)]
+    }
+
     // ---------- Khud se kuch karna ----------
     private val auto = object : Runnable {
         override fun run() {
@@ -547,10 +597,15 @@ class FloatingService : Service() {
             } else if (p != null && !dragging && !listening) {
                 checkAccessibility()
                 val idleFor = now - lastTouch
-                if (!p.isSleeping()) {
-                    val prefs = getSharedPreferences("jarvis", MODE_PRIVATE)
-                    val checkOn = prefs.getBoolean("checkin", true)
-                    val talkOn = prefs.getBoolean("idle_talk", true)
+                val prefs = getSharedPreferences("jarvis", MODE_PRIVATE)
+                val checkOn = prefs.getBoolean("checkin", true)
+                val talkOn = prefs.getBoolean("idle_talk", true)
+                val greet = if (talkOn && !p.busy || talkOn && p.isSleeping()) slotGreeting() else null
+                if (greet != null) {
+                    if (p.isSleeping()) p.wake()
+                    lastIdleSpeak = now
+                    speakOut(greet)
+                } else if (!p.isSleeping()) {
                     if (idleFor > 600000L) {
                         hideBubbleNow()
                         p.sleep()
