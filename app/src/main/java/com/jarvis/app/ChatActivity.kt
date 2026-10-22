@@ -11,7 +11,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.jarvis.app.databinding.ActivityChatBinding
-import java.util.Locale
 
 class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
@@ -57,13 +56,11 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            val r = tts?.setLanguage(Locale("hi", "IN"))
-            ttsReady = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
-            if (!ttsReady) {
-                tts?.setLanguage(Locale.getDefault())
-                ttsReady = true
+            val t = tts
+            if (t != null) {
+                VoiceHelper.apply(this, t)
             }
-            tts?.setPitch(1.25f)
+            ttsReady = true
         }
     }
 
@@ -107,13 +104,18 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val key = getSharedPreferences("jarvis", MODE_PRIVATE).getString("api_key", "") ?: ""
 
         Thread {
-            val reply = GeminiClient.askSmart(this@ChatActivity, key, history.toList())
+            var reply = "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
+            try {
+                reply = GeminiClient.askSmart(this@ChatActivity, key, history.toList())
+            } catch (e: Exception) {
+            }
+            val finalReply = reply
             runOnUiThread {
-                history.add("model" to reply)
-                messages[thinkingIndex] = ChatMessage(reply, false)
+                history.add("model" to finalReply)
+                messages[thinkingIndex] = ChatMessage(finalReply, false)
                 adapter.notifyItemChanged(thinkingIndex)
                 b.rvChat.scrollToPosition(messages.size - 1)
-                speak(reply)
+                speak(finalReply)
             }
         }.start()
     }
@@ -125,7 +127,14 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun speak(text: String) {
-        if (ttsReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "jarvis")
+        val t = tts
+        if (t != null && ttsReady) {
+            VoiceHelper.apply(this, t)
+            var s = text.replace(Regex("[\\p{So}\\p{Cn}\\uFE0F\\u200D]"), " ")
+            s = s.replace("*", "").replace("#", "").replace(Regex("\\s+"), " ").trim()
+            if (s.isEmpty()) s = "Ji"
+            t.speak(s.take(3500), TextToSpeech.QUEUE_FLUSH, null, "jarvis")
+        }
     }
 
     override fun onDestroy() {
