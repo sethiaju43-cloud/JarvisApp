@@ -277,8 +277,135 @@ object GeminiClient {
         memory.clear()
         facts.clear()
         lastScreen = ""
+        pendingAction = null
         saveMemory(ctx)
         saveFacts(ctx)
+    }
+
+    // ---------- Bhejne se pehle poochna (SMS, call, WhatsApp) ----------
+    private var pendingAction: String? = null
+    private var pendingAt = 0L
+    private const val PENDING_MS = 120000L
+
+    private val yesWords = setOf(
+        "haan", "han", "haa", "ha", "haanji", "hanji", "yes", "yeah", "yep", "ok", "okay",
+        "theek", "thik", "bilkul", "sahi", "kardo", "bhejo", "bhej", "lagao", "lagado",
+        "हां", "हाँ", "हा", "जी", "ठीक", "बिल्कुल", "सही", "भेजो", "भेज", "लगाओ"
+    )
+    private val yesPhrases = listOf(
+        "kar do", "bhej do", "laga do", "theek hai", "thik hai",
+        "कर दो", "भेज दो", "लगा दो", "ठीक है"
+    )
+    private val noWords = setOf(
+        "nahi", "nahin", "nahii", "na", "no", "nope", "mat", "ruko", "ruk", "stop", "cancel",
+        "नहीं", "नही", "ना", "मत", "रुको", "रुक", "कैंसल"
+    )
+    private val noPhrases = listOf("rehne do", "rahne do", "रहने दो", "रहने", "chhodo", "छोड़ो")
+
+    private fun confirmOn(ctx: Context): Boolean {
+        return ctx.applicationContext.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
+            .getBoolean("confirm_send", true)
+    }
+
+    @Synchronized
+    fun hasPending(): Boolean {
+        val p = pendingAction
+        if (p != null && System.currentTimeMillis() - pendingAt > PENDING_MS) {
+            pendingAction = null
+        }
+        return pendingAction != null
+    }
+
+    @Synchronized
+    private fun setPending(action: String) {
+        pendingAction = action
+        pendingAt = System.currentTimeMillis()
+    }
+
+    @Synchronized
+    private fun peekPending(): String? {
+        return if (hasPending()) pendingAction else null
+    }
+
+    @Synchronized
+    private fun clearPending() {
+        pendingAction = null
+    }
+
+    private fun wordsOf(t: String): List<String> {
+        return t.lowercase().replace(Regex("[,.!?।]"), " ").split(" ").filter { it.isNotBlank() }
+    }
+
+    private fun isNoAnswer(t: String): Boolean {
+        val low = t.lowercase()
+        if (noPhrases.any { low.contains(it) }) return true
+        return wordsOf(t).any { it in noWords }
+    }
+
+    private fun isYesAnswer(t: String): Boolean {
+        val w = wordsOf(t)
+        // Lamba naya command ho to usse "haan" mat samjho
+        if (w.size > 3) return false
+        val low = t.lowercase()
+        if (yesPhrases.any { low.contains(it) }) return true
+        return w.any { it in yesWords }
+    }
+
+    /** SMS, call ya WhatsApp ka kaam ho to poochne wala sawaal lautao, warna null */
+    private fun confirmQuestion(reply: String): String? {
+        val ai = reply.indexOf("ACTION:")
+        if (ai < 0 || reply.indexOf("OPEN:") >= 0) return null
+        val line = reply.substring(ai + 7).lines().first().trim()
+        val up = line.uppercase()
+        if (up.startsWith("SMS") || up.startsWith("WHATSAPP")) {
+            val isSms = up.startsWith("SMS")
+            val arg = line.drop(if (isSms) 3 else 8).trim()
+            val idx = arg.indexOf("::")
+            val who = (if (idx >= 0) arg.substring(0, idx) else arg)
+                .trim().trim('"', '\'', '<', '>').split("|")[0].trim()
+            val msg = if (idx >= 0) arg.substring(idx + 2).trim().trim('"', '\'') else ""
+            val kind = if (isSms) "SMS" else "WhatsApp"
+            return if (msg.isNotBlank()) {
+                who + " ko " + kind + " bhejun: '" + msg + "'? Haan ya Nahi bolo 💬"
+            } else {
+                who + " ki " + kind + " chat kholun? Haan ya Nahi bolo 💬"
+            }
+        }
+        if (up.startsWith("CALL")) {
+            val t = line.drop(4).trim().trim('"', '\'', '<', '>').split("|")[0].trim()
+            val compact = t.lowercase().replace(" ", "")
+            val generic = compact.isEmpty() || compact == "number" || compact == "screen" ||
+                compact == "isnumber" || compact == "thisnumber"
+            return if (generic) {
+                "Screen wale number par call lagaun? Haan ya Nahi bolo 📞"
+            } else {
+                t + " ko call lagaun? Haan ya Nahi bolo 📞"
+            }
+        }
+        return null
+    }
+
+    /**
+     * Pehle "bhejun?" poochha tha to ab user ka jawab dekho.
+     * Haan -> kaam karo, Nahi -> rok do, kuch aur bola -> null (naya command samjho).
+     * Ye background thread se hi bulao.
+     */
+    fun answerPending(context: Context, text: String): String? {
+        val action = peekPending() ?: return null
+        if (isNoAnswer(text)) {
+            clearPending()
+            val r = "Theek hai jaan, nahi bheja 👍"
+            noteLocal(context, text, r)
+            return r
+        }
+        if (isYesAnswer(text)) {
+            clearPending()
+            val res = PhoneActions.interpret(context, action)
+            noteLocal(context, text, res)
+            return res
+        }
+        clearPending()
+        return null
     }
 
     @Synchronized
@@ -562,6 +689,7 @@ object GeminiClient {
         val steps = ArrayList<String>()
         var finalText = cur
         var viaDone = false
+        var confirming = false
         var guard = 0
         while (guard < 16) {
             guard++
@@ -578,6 +706,16 @@ object GeminiClient {
             }
             val more = moreRegex.containsMatchIn(cur)
             val cleaned = fixAlarmTime(cur.replace(moreRegex, "").trim(), userText)
+            // SMS, call, WhatsApp: pehle user se poochho (Settings mein band ho to seedha karo)
+            if (confirmOn(context)) {
+                val q = confirmQuestion(cleaned)
+                if (q != null) {
+                    setPending(cleaned)
+                    finalText = q
+                    confirming = true
+                    break
+                }
+            }
             val res = PhoneActions.interpret(context, cleaned)
             steps.add(res)
             finalText = res
@@ -623,7 +761,9 @@ object GeminiClient {
             }
         }
         finalText = finalText.replace(moreRegex, "").trim()
-        if (steps.size > 1 && !viaDone && !finalText.contains("😕") && !isErrorReply(finalText)) {
+        if (!confirming && steps.size > 1 && !viaDone && !finalText.contains("😕") &&
+            !isErrorReply(finalText)
+        ) {
             finalText = "Ho gaya jaan ✅ " + finalText
         }
 
