@@ -161,6 +161,15 @@
                 android:textSize="16sp" />
 
             <androidx.appcompat.widget.SwitchCompat
+                android:id="@+id/swConfirm"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:text="SMS, call, WhatsApp se pehle poochho"
+                android:textColor="@color/text_white"
+                android:textSize="16sp" />
+
+            <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/swFloating"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
