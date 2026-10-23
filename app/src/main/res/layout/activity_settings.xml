@@ -169,6 +169,46 @@
                 android:textColor="@color/text_white"
                 android:textSize="16sp" />
 
+            <TextView
+                android:id="@+id/btnFacts"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:background="@drawable/bg_button"
+                android:paddingStart="20dp"
+                android:paddingTop="10dp"
+                android:paddingEnd="20dp"
+                android:paddingBottom="10dp"
+                android:text="🧠 Jarvi ko meri kya baatein yaad hain"
+                android:textColor="@color/neon"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="WhatsApp ke liye country code"
+                android:textColor="@color/text_white"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/etCountry"
+                android:layout_width="120dp"
+                android:layout_height="wrap_content"
+                android:hint="91"
+                android:inputType="number"
+                android:maxLength="4"
+                android:textColor="@color/text_white"
+                android:textColorHint="@color/text_dim" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="10 ank wale number ke aage ye code lagega. India ke liye 91. Khali chhodo to kuch nahi lagega."
+                android:textColor="@color/text_dim"
+                android:textSize="12sp" />
+
             <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/swFloating"
                 android:layout_width="match_parent"
