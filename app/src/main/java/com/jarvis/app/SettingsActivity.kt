@@ -9,6 +9,7 @@ import android.widget.RadioButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.widget.doOnTextChanged
 import com.jarvis.app.databinding.ActivitySettingsBinding
 
 class SettingsActivity : AppCompatActivity() {
@@ -86,6 +87,18 @@ class SettingsActivity : AppCompatActivity() {
         b.swConfirm.isChecked = prefs.getBoolean("confirm_send", true)
         b.swConfirm.setOnCheckedChangeListener { _, on ->
             prefs.edit().putBoolean("confirm_send", on).apply()
+        }
+
+        // Jarvi ne kya yaad rakha hai: dekho aur hatao
+        b.btnFacts.setOnClickListener {
+            startActivity(Intent(this, FactsActivity::class.java))
+        }
+
+        // WhatsApp ke 10 ank wale number ke aage lagne wala country code
+        b.etCountry.setText(prefs.getString("country_code", "91"))
+        b.etCountry.doOnTextChanged { text, _, _, _ ->
+            val c = (text?.toString() ?: "").filter { it.isDigit() }.take(4)
+            prefs.edit().putString("country_code", c).apply()
         }
 
         // Floating character
