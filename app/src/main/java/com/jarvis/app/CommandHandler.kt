@@ -5,11 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.AlarmClock
 import android.provider.ContactsContract
 import android.provider.MediaStore
+import android.telephony.SmsManager
 import android.view.View
 import android.view.WindowManager
 import androidx.core.content.ContextCompat
@@ -51,7 +53,8 @@ object CommandHandler {
         "रुको" to "ruko", "रुक" to "ruko", "स्टॉप" to "stop", "बस करो" to "bas karo",
         "भूल जाओ" to "bhool jao", "भूल जा" to "bhool jao", "भूल" to "bhool",
         "जार्वी" to "jarvi", "जारवी" to "jarvi", "जार्विस" to "jarvis",
-        "जर्विस" to "jarvis", "जारविस" to "jarvis"
+        "जर्विस" to "jarvis", "जारविस" to "jarvis",
+        "सेल्फी" to "selfie", "फोटो" to "photo", "फ़ोटो" to "photo", "एसएमएस" to "sms"
     )
 
     private val fillerWords = listOf(
@@ -147,6 +150,8 @@ object CommandHandler {
     /** Kya vaakya mein kai kaam jude hue hain (aur, phir...)? */
     fun hasMultiTask(raw: String): Boolean {
         val padded = " " + normalize(raw) + " "
+        // SMS ke message ke andar "aur" ho sakta hai, isliye use alag kaam mat samjho
+        if (padded.contains(" sms ")) return false
         return connectors.any { padded.contains(it) }
     }
 
@@ -167,6 +172,9 @@ object CommandHandler {
             GeminiClient.clearMemory(context)
             return "Theek hai jaan, sab bhool gayi 🙈"
         }
+
+        // SMS ka kaam Gemini karega (message ke andar back/home jaise shabd ho sakte hain)
+        if (t.contains("sms")) return null
 
         // Scroll rokna
         if (wordCount <= 4 && words.any { it == "ruko" || it == "stop" || it == "bas" }) {
@@ -202,6 +210,9 @@ object CommandHandler {
 
         // Screen padhne wale sawaal Gemini ke paas jayenge (screen ka text saath mein)
         if (wantsScreen(raw)) return null
+
+        // Photo ya selfie lene ka kaam Gemini karega
+        if (t.contains("selfie") || t.contains("photo")) return null
 
         // Phone control (Accessibility chahiye) - sirf chhote commands par
         val isControl = t.contains("back") || t.contains("home") ||
@@ -305,8 +316,14 @@ object CommandHandler {
             return callTarget(context, target)
         }
 
+        // SMS: Accessibility ki zarurat nahi
+        if (up.startsWith("SMS")) return sendSms(context, line.drop(3).trim())
+
         val svc = JarvisAccessibilityService.instance
             ?: return "Accessibility atak gayi 😕 Settings mein Jarvis Phone Control ek baar OFF phir ON karo"
+
+        if (up.startsWith("PHOTO")) return takePhoto(context, svc, false)
+        if (up.startsWith("SELFIE")) return takePhoto(context, svc, true)
 
         if (up.startsWith("FULLSCREEN")) return doFullscreen(context, svc)
 
@@ -380,6 +397,97 @@ object CommandHandler {
         petHidden(false)
         if (ok) return "Video bada kar diya 📺"
         return GeminiClient.visionTap(context, "fullscreen (enlarge video) button")
+    }
+
+    // ---------- SMS ----------
+    /** Format: <number ya naam> :: <message> */
+    private fun sendSms(context: Context, arg: String): String {
+        val idx = arg.indexOf("::")
+        if (idx < 0) return "SMS mein kisko aur kya bhejna hai samajh nahi aaya 😕"
+        val target = arg.substring(0, idx).trim().trim('"', '\'', '<', '>')
+        val msg = arg.substring(idx + 2).trim().trim('"', '\'')
+        if (target.isBlank() || msg.isBlank()) return "Kisko aur kya SMS bhejna hai? 🤔"
+
+        val canSms = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.SEND_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!canSms) return "Pehle Permissions mein Phone & SMS allow karo 💬"
+
+        var number: String? = null
+        var label = target
+        val digits = asciiDigits(target)
+        if (digits.count { it.isDigit() } >= 5) {
+            number = digits
+        } else {
+            if (!hasContacts(context)) {
+                return "Naam se SMS ke liye Permissions mein Contacts allow karo 📒"
+            }
+            for (n in target.split("|")) {
+                val c = findContact(context, n.trim())
+                if (c != null) {
+                    number = c.second
+                    label = c.first
+                    break
+                }
+            }
+        }
+        if (number == null) return "'" + target + "' naam ka contact nahi mila 😕"
+
+        return try {
+            val sm: SmsManager = if (Build.VERSION.SDK_INT >= 31) {
+                context.getSystemService(SmsManager::class.java)
+            } else {
+                SmsManager.getDefault()
+            }
+            val parts = sm.divideMessage(msg)
+            if (parts.size > 1) {
+                sm.sendMultipartTextMessage(number, null, parts, null, null)
+            } else {
+                sm.sendTextMessage(number, null, msg, null, null)
+            }
+            label + " ko SMS bhej diya 💬"
+        } catch (e: Exception) {
+            "SMS nahi ja paya 😕 " + (e.message ?: "")
+        }
+    }
+
+    // ---------- Photo / Selfie ----------
+    /** Camera app kholkar shutter dabata hai (background thread se bulao) */
+    private fun takePhoto(
+        context: Context,
+        svc: JarvisAccessibilityService,
+        selfie: Boolean
+    ): String {
+        val pkg = svc.currentPackage().lowercase()
+        if (!pkg.contains("camera")) {
+            launchIntent(context, Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA), "")
+            nap(2800)
+        }
+        petHidden(true)
+        nap(300)
+
+        if (selfie) {
+            val switched = svc.clickBest("front camera") || svc.clickBest("switch camera") ||
+                svc.clickBest("selfie") || svc.clickBest("flip camera") ||
+                svc.clickBest("rotate camera")
+            if (!switched) {
+                GeminiClient.visionTap(context, "button to switch to the front (selfie) camera")
+                petHidden(true)
+            }
+            // Pose banane ka time
+            nap(2500)
+        } else {
+            nap(800)
+        }
+
+        val ok = svc.clickBest("shutter") || svc.clickBest("take photo") ||
+            svc.clickBest("take picture") || svc.clickBest("capture")
+        petHidden(false)
+        if (!ok) {
+            return GeminiClient.visionTap(context, "camera shutter (photo capture) button")
+        }
+        nap(500)
+        return if (selfie) "Selfie le li 📸 Gallery mein dekh lena" else "Photo le li 📸 Gallery mein dekh lena"
     }
 
     // ---------- Alarm aur timer ----------
