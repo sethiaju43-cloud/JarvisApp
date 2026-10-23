@@ -201,6 +201,7 @@ object CommandHandler {
         // Scroll rokna
         if (wordCount <= 4 && words.any { it == "ruko" || it == "stop" || it == "bas" }) {
             scrollToken++
+            GeminiClient.requestStop()
             return "Ruk gayi 🛑"
         }
 
