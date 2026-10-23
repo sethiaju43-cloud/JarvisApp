@@ -178,10 +178,15 @@ object CommandHandler {
     }
 
     /** Seedha command mila to reply lautao, nahi mila to null (tab Gemini samjhega) */
+    // Ek samay mein ek hi command chale (ab ye peeche ke thread se bulaya jaata hai)
+    private val handleLock = Any()
+
     fun handle(context: Context, raw: String): String? {
-        val r = handleInner(context, raw)
-        if (r != null) GeminiClient.noteLocal(context, raw, r)
-        return r
+        synchronized(handleLock) {
+            val r = handleInner(context, raw)
+            if (r != null) GeminiClient.noteLocal(context, raw, r)
+            return r
+        }
     }
 
     private fun handleInner(context: Context, raw: String): String? {
@@ -192,6 +197,7 @@ object CommandHandler {
         // Sab kuch bhulwana
         if (wordCount <= 5 && t.contains("bhool jao")) {
             GeminiClient.clearMemory(context)
+            ChatStore.clear(context)
             return "Theek hai jaan, sab bhool gayi 🙈"
         }
 
