@@ -1,0 +1,19 @@
+# Build ki bekaar files
+/build/
+/app/build/
+.gradle/
+.cxx/
+.externalNativeBuild/
+/captures/
+
+# Android Studio aur computer ki files
+.idea/
+*.iml
+/local.properties
+.DS_Store
+
+# Taiyaar APK aur signing keys (kabhi GitHub par mat daalo)
+*.apk
+*.aab
+*.jks
+*.keystore
