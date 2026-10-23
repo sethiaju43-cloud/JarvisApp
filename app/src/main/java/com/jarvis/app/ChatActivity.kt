@@ -97,6 +97,32 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun sendMessage(text: String) {
         addMessage(text, true)
 
+        // Pehle "bhejun?" poochha tha to ab Haan/Nahi ka jawab dekho
+        if (GeminiClient.hasPending()) {
+            val ph = addPlaceholder()
+            Thread {
+                var pr: String? = null
+                try {
+                    pr = GeminiClient.answerPending(applicationContext, text)
+                } catch (e: Exception) {
+                }
+                val result = pr
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (result != null) {
+                        fillPlaceholder(ph, result)
+                    } else {
+                        removePlaceholder(ph)
+                        routeMessage(text)
+                    }
+                }
+            }.start()
+            return
+        }
+        routeMessage(text)
+    }
+
+    private fun routeMessage(text: String) {
         // Pehle seedha command check karo (app kholna, back, home...)
         val cmdReply = CommandHandler.handle(this, text)
         if (cmdReply != null) {
@@ -114,26 +140,51 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         // Seedha command nahi mila to Gemini samjhega aur jawab dega
         history.add("user" to text)
-        addMessage("...", false)
-        val thinkingIndex = messages.size - 1
+        val placeholder = addPlaceholder()
         val key = getSharedPreferences("jarvis", MODE_PRIVATE).getString("api_key", "") ?: ""
+        val snapshot = history.toList()
 
         Thread {
             var reply = "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
             try {
-                reply = GeminiClient.askSmart(this@ChatActivity, key, history.toList())
+                reply = GeminiClient.askSmart(applicationContext, key, snapshot)
             } catch (e: Exception) {
             }
             val finalReply = reply
             runOnUiThread {
+                // Chat screen band ho chuki ho to kuch mat likho
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 history.add("model" to finalReply)
-                messages[thinkingIndex] = ChatMessage(finalReply, false)
-                adapter.notifyItemChanged(thinkingIndex)
-                ChatStore.save(this@ChatActivity, messages)
-                b.rvChat.scrollToPosition(messages.size - 1)
-                speak(finalReply)
+                fillPlaceholder(placeholder, finalReply)
             }
         }.start()
+    }
+
+    /** "..." wala message jodo aur uski pehchaan lautao (jagah ka number yaad nahi rakhte) */
+    private fun addPlaceholder(): ChatMessage {
+        val p = ChatMessage("...", false)
+        messages.add(p)
+        adapter.notifyItemInserted(messages.size - 1)
+        b.rvChat.scrollToPosition(messages.size - 1)
+        return p
+    }
+
+    /** "..." ki jagah jawab likho. Agar "..." hat chuka ho (bhool jao) to chupchaap chhod do */
+    private fun fillPlaceholder(p: ChatMessage, text: String) {
+        val idx = messages.indexOfFirst { it === p }
+        if (idx < 0) return
+        messages[idx] = ChatMessage(text, false)
+        adapter.notifyItemChanged(idx)
+        ChatStore.save(this, messages)
+        b.rvChat.scrollToPosition(messages.size - 1)
+        speak(text)
+    }
+
+    private fun removePlaceholder(p: ChatMessage) {
+        val idx = messages.indexOfFirst { it === p }
+        if (idx < 0) return
+        messages.removeAt(idx)
+        adapter.notifyItemRemoved(idx)
     }
 
     private fun addMessage(text: String, isUser: Boolean) {
