@@ -31,6 +31,7 @@ import android.view.WindowManager
 import android.view.animation.LinearInterpolator
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import java.util.Random
@@ -73,7 +74,7 @@ class FloatingService : Service() {
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
-    private val history = ArrayList<Pair<String, String>>()
+    private var voiceWarned = false
 
     private val idleLines = listOf(
         "Hello jaan! 😊", "Kya kar rahe ho? 😀", "Main yahan hun! 🙌",
@@ -358,7 +359,15 @@ class FloatingService : Service() {
         say(text, 2500L + text.length * 70L)
         val t = tts
         if (t != null && ttsReady) {
-            VoiceHelper.apply(applicationContext, t)
+            val okVoice = VoiceHelper.apply(applicationContext, t, text)
+            if (!okVoice && !voiceWarned && VoiceHelper.speakLang(applicationContext, text) == "en") {
+                voiceWarned = true
+                Toast.makeText(
+                    applicationContext,
+                    "English awaaz nahi mili. Phone Settings mein Text-to-speech se download kar lo",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
             t.speak(speakable(text), TextToSpeech.QUEUE_FLUSH, null, "jarvi")
         } else {
             pet?.talk(2500)
@@ -368,6 +377,7 @@ class FloatingService : Service() {
     /** User ki baat ka jawab */
     private fun reply(text: String) {
         lastTouch = System.currentTimeMillis()
+        ChatStore.append(applicationContext, text, false)
         speakOut(text)
     }
 
@@ -505,6 +515,7 @@ class FloatingService : Service() {
     // ---------- Jo bola use samajhna ----------
     private fun handleSpoken(text: String) {
         lastTouch = System.currentTimeMillis()
+        ChatStore.append(applicationContext, text, true)
         pet?.think(30000)
         say("Soch rahi hun... 💭", 20000L)
 
@@ -527,14 +538,23 @@ class FloatingService : Service() {
     }
 
     private fun routeSpoken(text: String) {
-        val cmdReply = CommandHandler.handle(this, text)
-        if (cmdReply != null) {
-            reply(cmdReply)
-            return
-        }
+        // Command ka bhaari kaam peeche ke thread mein, taaki screen na atke
+        Thread {
+            var cmdReply: String? = null
+            try {
+                cmdReply = CommandHandler.handle(applicationContext, text)
+            } catch (e: Exception) {
+            }
+            val cr = cmdReply
+            handler.post {
+                if (cr != null) reply(cr) else askGemini(text)
+            }
+        }.start()
+    }
 
-        history.add(Pair("user", text))
-        val snapshot = ArrayList(history)
+    private fun askGemini(text: String) {
+        // Asli yaaddasht GeminiClient ke paas hai, yahan sirf aakhri baat bhejni hai
+        val snapshot = listOf(Pair("user", text))
         val key = ApiKeyStore.getKey(applicationContext)
         Thread {
             var r = "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
@@ -544,11 +564,6 @@ class FloatingService : Service() {
             }
             val finalReply = r
             handler.post {
-                history.add(Pair("model", finalReply))
-                while (history.size > 16) {
-                    history.removeAt(0)
-                    history.removeAt(0)
-                }
                 // "Bhejun?" poochha hai to bolne ke baad khud sun lo (Haan/Nahi ke liye)
                 if (GeminiClient.hasPending()) {
                     wantListenAfter = (tts != null && ttsReady)
