@@ -383,6 +383,12 @@ class FloatingService : Service() {
     private fun onPetTapped() {
         lastTouch = System.currentTimeMillis()
         val p = pet ?: return
+        // Jarvi koi kaam kar rahi ho to tap karte hi ruk jaaye
+        if (GeminiClient.isBusy()) {
+            GeminiClient.requestStop()
+            say("Ruk rahi hun... 🛑", 2500L)
+            return
+        }
         if (listening) {
             cancelListening()
             return
@@ -529,8 +535,7 @@ class FloatingService : Service() {
 
         history.add(Pair("user", text))
         val snapshot = ArrayList(history)
-        val key = getSharedPreferences("jarvis", MODE_PRIVATE)
-            .getString("api_key", "") ?: ""
+        val key = ApiKeyStore.getKey(applicationContext)
         Thread {
             var r = "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
             try {
