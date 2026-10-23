@@ -19,13 +19,26 @@ object VoiceHelper {
         return i.coerceIn(0, names.size - 1)
     }
 
-    private fun engineVoices(tts: TextToSpeech): List<Voice> {
+    /**
+     * Kis bhasha ki awaaz mein bolna hai: "hi" ya "en".
+     * Jawab mein Hindi akshar (देवनागरी) ho to hamesha "hi", warna Settings ki Language ke hisaab se.
+     */
+    fun speakLang(ctx: Context, text: String): String {
+        for (c in text) {
+            if (c in 'ऀ'..'ॿ') return "hi"
+        }
+        val lang = ctx.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
+            .getString("lang", "hi-IN") ?: "hi-IN"
+        return if (lang.startsWith("en")) "en" else "hi"
+    }
+
+    private fun engineVoices(tts: TextToSpeech, lang: String): List<Voice> {
         val out = ArrayList<Voice>()
         try {
             val all = tts.voices
             if (all != null) {
                 for (v in all) {
-                    if (v.locale.language != "hi") continue
+                    if (v.locale.language != lang) continue
                     val f = v.features
                     val missing = f != null && f.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED)
                     if (!missing) out.add(v)
@@ -33,32 +46,44 @@ object VoiceHelper {
             }
         } catch (e: Exception) {
         }
-        out.sortBy { it.name }
+        // India wali awaaz pehle, phir naam ke hisaab se
+        out.sortWith(compareBy<Voice>({ if (it.locale.country == "IN") 0 else 1 }, { it.name }))
         return out
     }
 
-    fun voiceCount(tts: TextToSpeech): Int {
-        return engineVoices(tts).size
+    fun voiceCount(tts: TextToSpeech, lang: String = "hi"): Int {
+        return engineVoices(tts, lang).size
     }
 
-    fun apply(ctx: Context, tts: TextToSpeech) {
+    /**
+     * Awaaz lagao. true = chahi hui bhasha ki awaaz mil gayi,
+     * false = nahi mili (Hindi ya phone ki bhasha par wapas aa gaye).
+     */
+    fun apply(ctx: Context, tts: TextToSpeech, text: String = ""): Boolean {
         val idx = index(ctx)
-        var set = false
-        val vs = engineVoices(tts)
+        val lang = speakLang(ctx, text)
+        var ok = false
+        val vs = engineVoices(tts, lang)
         if (vs.isNotEmpty()) {
             try {
                 tts.voice = vs[idx % vs.size]
-                set = true
+                ok = true
             } catch (e: Exception) {
             }
         }
-        if (!set) {
-            val r = tts.setLanguage(Locale("hi", "IN"))
-            if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
-                tts.setLanguage(Locale.getDefault())
+        if (!ok) {
+            val want = if (lang == "en") Locale("en", "IN") else Locale("hi", "IN")
+            val r = tts.setLanguage(want)
+            ok = !(r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED)
+            if (!ok) {
+                val r2 = tts.setLanguage(Locale("hi", "IN"))
+                if (r2 == TextToSpeech.LANG_MISSING_DATA || r2 == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    tts.setLanguage(Locale.getDefault())
+                }
             }
         }
         tts.setPitch(pitches[idx])
         tts.setSpeechRate(rates[idx])
+        return ok
     }
 }
