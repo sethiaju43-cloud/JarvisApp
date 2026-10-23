@@ -12,8 +12,10 @@ class BootReceiver : BroadcastReceiver() {
             val prefs = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
             val autoStart = prefs.getBoolean("auto_start", false)
             if (autoStart && Settings.canDrawOverlays(context)) {
+                // Boot par mic wala service type allow nahi (Android 14+), isliye flag bhejo
                 ContextCompat.startForegroundService(
-                    context, Intent(context, FloatingService::class.java)
+                    context,
+                    Intent(context, FloatingService::class.java).putExtra("from_boot", true)
                 )
             }
         }
