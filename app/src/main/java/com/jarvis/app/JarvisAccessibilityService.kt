@@ -18,6 +18,18 @@ class JarvisAccessibilityService : AccessibilityService() {
 
     companion object {
         var instance: JarvisAccessibilityService? = null
+
+        // In apps ki screen Jarvi padhegi nahi aur uski photo bhi nahi legi
+        private val PRIVATE_PREFIXES = listOf(
+            "com.phonepe", "com.google.android.apps.nbu.paisa", "net.one97.paytm",
+            "in.org.npci", "com.dreamplug", "com.mobikwik", "com.freecharge", "com.bharatpe",
+            "com.google.android.apps.walletnfcrel",
+            "com.google.android.apps.messaging", "com.android.mms",
+            "com.samsung.android.messaging", "com.miui.mms",
+            "com.google.android.apps.authenticator2", "com.authy",
+            "com.bitwarden", "com.x8bit.bitwarden", "com.lastpass", "com.onepassword",
+            "com.agilebits", "com.dashlane", "org.keepassdroid", "keepass2android"
+        )
     }
 
     override fun onServiceConnected() {
@@ -120,6 +132,14 @@ class JarvisAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             ""
         }
+    }
+
+    /** Bank, UPI, message aur password apps private hain: unki screen nahi padhni */
+    fun isPrivateApp(): Boolean {
+        val pkg = currentPackage().lowercase()
+        if (pkg.isEmpty()) return false
+        if (pkg.contains("bank") || pkg.contains("upi") || pkg.contains("wallet")) return true
+        return PRIVATE_PREFIXES.any { pkg.startsWith(it) }
     }
 
     /** Abhi jo app screen par hai uska naam (jaise WhatsApp) */
@@ -322,6 +342,7 @@ class JarvisAccessibilityService : AccessibilityService() {
     /** Screen par jo kuch dikh raha hai wo sab text lautao (sabse upar app ka naam) */
     fun readScreenText(): String {
         try {
+            if (isPrivateApp()) return ""
             val root = activeRoot() ?: return ""
             val sb = StringBuilder()
             sb.append("APP: ").append(currentAppLabel()).append("\n")
@@ -335,6 +356,8 @@ class JarvisAccessibilityService : AccessibilityService() {
     private fun collectText(n: AccessibilityNodeInfo?, sb: StringBuilder, depth: Int) {
         if (n == null || depth > 40 || sb.length > 5000) return
         if (!n.isVisibleToUser) return
+        // Password wale dabbe ko mat padho
+        if (n.isPassword) return
         val line = labelOf(n)
         if (line.isNotEmpty() && !sb.endsWith(line + "\n")) {
             sb.append(line).append("\n")
