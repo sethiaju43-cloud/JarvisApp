@@ -245,6 +245,29 @@ object GeminiClient {
             facts.joinToString("; ") + ". "
     }
 
+    /** Jarvi ko jo baatein yaad hain unki list (Settings ki screen ke liye) */
+    @Synchronized
+    fun listFacts(ctx: Context): List<String> {
+        loadFacts(ctx)
+        return ArrayList(facts)
+    }
+
+    @Synchronized
+    fun removeFact(ctx: Context, index: Int) {
+        loadFacts(ctx)
+        if (index in facts.indices) {
+            facts.removeAt(index)
+            saveFacts(ctx)
+        }
+    }
+
+    @Synchronized
+    fun clearFacts(ctx: Context) {
+        loadFacts(ctx)
+        facts.clear()
+        saveFacts(ctx)
+    }
+
     /** Jawab mein REMEMBER: wali line ho to use save karo aur jawab se hata do */
     private fun harvest(ctx: Context, text: String): String {
         var found = false
