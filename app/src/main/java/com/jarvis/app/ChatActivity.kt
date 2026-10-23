@@ -141,7 +141,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Seedha command nahi mila to Gemini samjhega aur jawab dega
         history.add("user" to text)
         val placeholder = addPlaceholder()
-        val key = getSharedPreferences("jarvis", MODE_PRIVATE).getString("api_key", "") ?: ""
+        val key = ApiKeyStore.getKey(applicationContext)
         val snapshot = history.toList()
 
         Thread {
