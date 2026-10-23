@@ -11,6 +11,7 @@ object ChatStore {
     private const val KEY = "msgs"
     private const val MAX = 100
 
+    @Synchronized
     fun load(ctx: Context): List<ChatMessage> {
         val out = ArrayList<ChatMessage>()
         try {
@@ -27,6 +28,7 @@ object ChatStore {
         return out
     }
 
+    @Synchronized
     fun save(ctx: Context, list: List<ChatMessage>) {
         try {
             val clean = list.filter { it.text != "..." }
@@ -45,6 +47,15 @@ object ChatStore {
         }
     }
 
+    /** Ek naya message aakhir mein jodo (floating Jarvi ki baatein bhi yahin save hoti hain) */
+    @Synchronized
+    fun append(ctx: Context, text: String, isUser: Boolean) {
+        val list = ArrayList(load(ctx))
+        list.add(ChatMessage(text, isUser))
+        save(ctx, list)
+    }
+
+    @Synchronized
     fun clear(ctx: Context) {
         try {
             ctx.applicationContext
