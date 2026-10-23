@@ -514,10 +514,9 @@ object GeminiClient {
     fun visionTap(context: Context, target: String): String {
         val svc = JarvisAccessibilityService.instance
             ?: return "Accessibility atak gayi 😕 Settings mein Jarvis Phone Control ek baar OFF phir ON karo"
-        val key = context.applicationContext
-            .getSharedPreferences("jarvis", Context.MODE_PRIVATE)
-            .getString("api_key", "") ?: ""
+        val key = ApiKeyStore.getKey(context)
         if (key.isBlank()) return "Pehle Settings mein apni Gemini API Key daalo 🔑"
+        if (svc.isPrivateApp()) return "Ye private app hai, iski screen ki photo nahi lungi 🔒"
 
         CommandHandler.petHidden(true)
         try {
@@ -603,8 +602,38 @@ object GeminiClient {
         return if (isErrorReply(r)) cur else r
     }
 
+    // ---------- Beech mein rokna (kill switch) ----------
+    @Volatile
+    private var stopFlag = false
+
+    @Volatile
+    private var running = false
+
+    /** "Ruko" bola ya Jarvi par tap kiya: chalta hua kaam agle step se pehle ruk jaayega */
+    fun requestStop() {
+        stopFlag = true
+    }
+
+    /** Abhi koi kaam chal raha hai? */
+    fun isBusy(): Boolean = running
+
     /** Phone ke commands, search, screen padhna, likhna, call, alarm, yaaddasht aur kai-step kaam */
     fun askSmart(context: Context, apiKey: String, history: List<Pair<String, String>>): String {
+        stopFlag = false
+        running = true
+        try {
+            val r = askSmartInner(context, apiKey, history)
+            return if (stopFlag) "Ruk gayi 🛑" else r
+        } finally {
+            running = false
+        }
+    }
+
+    private fun askSmartInner(
+        context: Context,
+        apiKey: String,
+        history: List<Pair<String, String>>
+    ): String {
         val last = history.lastOrNull()
         val userText = if (last != null && last.first == "user") last.second else ""
         if (userText.isBlank()) return "Kuch sunai nahi diya jaan 🥺"
@@ -631,6 +660,10 @@ object GeminiClient {
             if (svc == null) {
                 extra = "\n\n[SCREEN TEXT]\n(Accessibility atak gayi hai, isliye screen padh nahi sakti. " +
                     "User ko Settings mein Jarvis Phone Control OFF phir ON karne ko bolo.)"
+            } else if (svc.isPrivateApp()) {
+                extra = "\n\n[SCREEN TEXT]\n(Ye private app hai (bank, UPI, message ya password). " +
+                    "Iski screen tum nahi padhogi. User ko pyaar se bolo ki ye app private hai, " +
+                    "isliye iski screen nahi padh sakti 🔒)"
             } else {
                 val s = svc.readScreenText()
                 if (s.isNotBlank()) {
@@ -690,9 +723,15 @@ object GeminiClient {
         var finalText = cur
         var viaDone = false
         var confirming = false
+        var stopped = false
         var guard = 0
         while (guard < 16) {
             guard++
+            if (stopFlag) {
+                finalText = "Ruk gayi 🛑"
+                stopped = true
+                break
+            }
             val hasAct = cur.contains("OPEN:") || cur.contains("ACTION:")
             if (!hasAct) {
                 val di = cur.indexOf("DONE:")
@@ -715,6 +754,11 @@ object GeminiClient {
                     confirming = true
                     break
                 }
+            }
+            if (stopFlag) {
+                finalText = "Ruk gayi 🛑"
+                stopped = true
+                break
             }
             val res = PhoneActions.interpret(context, cleaned)
             steps.add(res)
@@ -761,7 +805,7 @@ object GeminiClient {
             }
         }
         finalText = finalText.replace(moreRegex, "").trim()
-        if (!confirming && steps.size > 1 && !viaDone && !finalText.contains("😕") &&
+        if (!confirming && !stopped && steps.size > 1 && !viaDone && !finalText.contains("😕") &&
             !isErrorReply(finalText)
         ) {
             finalText = "Ho gaya jaan ✅ " + finalText
