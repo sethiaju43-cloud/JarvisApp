@@ -76,6 +76,22 @@ object CommandHandler {
         " aur ", " phir ", " fir ", " uske baad ", " then ", " and ", " और ", " फिर "
     )
 
+    // Alag-alag kaam ke shabd (2 ya zyada group mile to vaakya mein kai kaam hain)
+    private val actionGroups = listOf(
+        listOf("khol", "open"),
+        listOf("search", "dhundo"),
+        listOf("type", "likho", "likh "),
+        listOf("click", "dabao", "dabaao", "tap", "select", "play"),
+        listOf("scroll"),
+        listOf("call"),
+        listOf("location"),
+        listOf("alarm", "timer"),
+        listOf("photo", "selfie"),
+        listOf("bhejo", "send", "bhej "),
+        listOf("fullscreen", "full screen", "bada"),
+        listOf("back", "home", "recent")
+    )
+
     private var scrollToken = 0
 
     private fun nap(ms: Long) {
@@ -147,12 +163,18 @@ object CommandHandler {
         return false
     }
 
-    /** Kya vaakya mein kai kaam jude hue hain (aur, phir...)? */
+    /** Kya vaakya mein kai kaam jude hue hain (aur, phir, ya 2+ alag kaam ke shabd)? */
     fun hasMultiTask(raw: String): Boolean {
         val padded = " " + normalize(raw) + " "
         // SMS ke message ke andar "aur" ho sakta hai, isliye use alag kaam mat samjho
         if (padded.contains(" sms ")) return false
-        return connectors.any { padded.contains(it) }
+        if (connectors.any { padded.contains(it) }) return true
+        // "aur/phir" na bola ho tab bhi: 2 ya zyada alag kaam ke shabd ho to kai kaam hain
+        var kinds = 0
+        for (g in actionGroups) {
+            if (g.any { padded.contains(it) }) kinds++
+        }
+        return kinds >= 2
     }
 
     /** Seedha command mila to reply lautao, nahi mila to null (tab Gemini samjhega) */
@@ -354,6 +376,12 @@ object CommandHandler {
             val name = line.drop(5).trim().trim('"', '\'')
             if (name.isBlank()) return "Kaunsa button dabaun? 🤔"
             if (name.lowercase().contains("full")) return doFullscreen(context, svc)
+            val ln = name.lowercase()
+            if (ln.contains("shutter") || ln.contains("capture") ||
+                ln.contains("take photo") || ln.contains("take picture")
+            ) {
+                return takePhoto(context, svc, false)
+            }
             if (svc.clickBest(name)) return "'" + name + "' dabaa diya! 👆"
             // Text se nahi mila (icon ya game ka button): screenshot dekh kar dhundo
             return GeminiClient.visionTap(context, name)
@@ -452,42 +480,52 @@ object CommandHandler {
     }
 
     // ---------- Photo / Selfie ----------
-    /** Camera app kholkar shutter dabata hai (background thread se bulao) */
+    /** Camera kholkar shutter par asli tap karta hai (background thread se bulao) */
     private fun takePhoto(
         context: Context,
         svc: JarvisAccessibilityService,
         selfie: Boolean
     ): String {
-        val pkg = svc.currentPackage().lowercase()
+        var pkg = svc.currentPackage().lowercase()
         if (!pkg.contains("camera")) {
-            launchIntent(context, Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA), "")
-            nap(2800)
+            val ci = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+            if (selfie) {
+                ci.putExtra("android.intent.extras.CAMERA_FACING", 1)
+                ci.putExtra("android.intent.extras.LENS_FACING_FRONT", 1)
+                ci.putExtra("android.intent.extra.USE_FRONT_CAMERA", true)
+            }
+            launchIntent(context, ci, "")
+            nap(3200)
+            pkg = svc.currentPackage().lowercase()
+            if (!pkg.contains("camera")) {
+                return "Camera khul nahi paya 😕 Ek baar camera khud khol do, phir bolo"
+            }
+        } else if (selfie) {
+            // Camera pehle se khula hai: front/back badlo
+            GeminiClient.visionTap(
+                context, "button that switches between the front and back camera"
+            )
+            nap(1000)
         }
+
+        // Selfie mein pose banane ka time
+        if (selfie) nap(2500) else nap(600)
+
+        // Shutter par asli touch (kai phone mein click action se photo nahi khichti)
+        val r = GeminiClient.visionTap(context, "round camera shutter button that takes the photo")
+        if (r.contains("par tap kar diya")) {
+            nap(500)
+            return if (selfie) "Selfie kheench li 📸 Gallery mein dekh lena" else "Photo kheench li 📸 Gallery mein dekh lena"
+        }
+
+        // Screenshot se na mila: neeche beech mein tap karo (zyadatar camera mein shutter wahin hota hai)
         petHidden(true)
         nap(300)
-
-        if (selfie) {
-            val switched = svc.clickBest("front camera") || svc.clickBest("switch camera") ||
-                svc.clickBest("selfie") || svc.clickBest("flip camera") ||
-                svc.clickBest("rotate camera")
-            if (!switched) {
-                GeminiClient.visionTap(context, "button to switch to the front (selfie) camera")
-                petHidden(true)
-            }
-            // Pose banane ka time
-            nap(2500)
-        } else {
-            nap(800)
-        }
-
-        val ok = svc.clickBest("shutter") || svc.clickBest("take photo") ||
-            svc.clickBest("take picture") || svc.clickBest("capture")
+        val dm = context.resources.displayMetrics
+        svc.tapAt(dm.widthPixels / 2f, dm.heightPixels * 0.86f)
+        nap(400)
         petHidden(false)
-        if (!ok) {
-            return GeminiClient.visionTap(context, "camera shutter (photo capture) button")
-        }
-        nap(500)
-        return if (selfie) "Selfie le li 📸 Gallery mein dekh lena" else "Photo le li 📸 Gallery mein dekh lena"
+        return "Shutter dabane ki koshish ki 📸 Gallery mein check kar lena"
     }
 
     // ---------- Alarm aur timer ----------
