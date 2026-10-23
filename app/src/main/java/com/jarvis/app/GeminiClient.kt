@@ -76,6 +76,13 @@ object GeminiClient {
         "(menu, three dot, Shorts ya Ad wali line mat chunna). " +
         "Agar sahi naam [SCREEN TEXT] mein na mile (jaise icon, X ya game ka button), tab bhi " +
         "ACTION: CLICK <jo user ne bola wo, English mein> likho, screenshot dekhkar dhundh liya jayega. " +
+        "Agar user SMS (text message) bhejne ko kahe (WhatsApp nahi), to sirf ek line mein jawab do: " +
+        "ACTION: SMS <number ya naam> :: <message ka text>. " +
+        "Naam ke liye ho sake to doosri spelling bhi '|' se do, jaise ACTION: SMS Rahul|Rahool :: kal milte hain. " +
+        "Message wahi likho jo user ne bhejne ko kaha, apni taraf se kuch mat jodo. " +
+        "SMS sirf tab likho jab user ne khud saaf SMS bhejne ko kaha ho. " +
+        "Agar user photo kheenchne ya lene ko kahe to ACTION: PHOTO, selfie lene ko kahe to ACTION: SELFIE " +
+        "(ye khud camera kholkar button dabata hai, isliye pehle OPEN mat likho). " +
         "Agar user ek saath kai kaam bole, to sirf PEHLA kaam ek line mein likho " +
         "aur line ke aakhir mein ' | MORE' lagao. Agla kaam baad mein alag se poochha jayega. " +
         "Pehla kaam hamesha bilkul format mein likho (OPEN: ya ACTION: se shuru), " +
