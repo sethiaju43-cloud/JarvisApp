@@ -264,7 +264,10 @@ object PhoneActions {
 
         var d = digitsOnly(number)
         d = d.trimStart('0')
-        if (d.length == 10) d = "91" + d
+        // 10 ank wale number ke aage Settings wala country code lagao (khali ho to kuch nahi)
+        val cc = (context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
+            .getString("country_code", "91") ?: "91").filter { it.isDigit() }
+        if (cc.isNotEmpty() && d.length == 10) d = cc + d
         var url = "https://wa.me/" + d
         if (msg.isNotBlank()) url += "?text=" + Uri.encode(msg)
 
