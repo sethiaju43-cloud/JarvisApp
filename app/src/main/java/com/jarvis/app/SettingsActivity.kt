@@ -83,6 +83,12 @@ class SettingsActivity : AppCompatActivity() {
             prefs.edit().putBoolean("checkin", on).apply()
         }
 
+        // SMS, call, WhatsApp bhejne se pehle poochna
+        b.swConfirm.isChecked = prefs.getBoolean("confirm_send", true)
+        b.swConfirm.setOnCheckedChangeListener { _, on ->
+            prefs.edit().putBoolean("confirm_send", on).apply()
+        }
+
         // Floating character
         b.swFloating.isChecked = prefs.getBoolean("floating", true)
         b.swFloating.setOnCheckedChangeListener { _, on ->
