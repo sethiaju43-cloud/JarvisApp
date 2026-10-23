@@ -30,13 +30,7 @@ class SettingsActivity : AppCompatActivity() {
         tts = TextToSpeech(this, TextToSpeech.OnInitListener { status ->
             if (status == TextToSpeech.SUCCESS) {
                 ttsReady = true
-                val t = tts
-                if (t != null) {
-                    val n = VoiceHelper.voiceCount(t)
-                    b.tvVoiceInfo.text = "Is phone mein " + n + " Hindi awaaz mili. " +
-                        "Zyada awaaz ke liye: phone Settings mein Text-to-speech kholo, " +
-                        "Google engine mein Hindi voice data download karo."
-                }
+                refreshVoiceInfo()
             } else {
                 b.tvVoiceInfo.text = "Is phone mein awaaz ka engine nahi chal paya."
             }
@@ -58,6 +52,8 @@ class SettingsActivity : AppCompatActivity() {
         b.rgLang.setOnCheckedChangeListener { _, id ->
             val l = if (id == b.rbEnglish.id) "en-IN" else "hi-IN"
             prefs.edit().putString("lang", l).apply()
+            refreshVoiceInfo()
+            testVoice()
         }
 
         // Jarvi ki awaaz
@@ -134,11 +130,30 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, "Awaaz abhi taiyaar nahi, thodi der baad try karo", Toast.LENGTH_SHORT).show()
             return
         }
-        VoiceHelper.apply(this, t)
-        t.speak(
-            "Hello jaan, main Jarvi hun. Meri awaaz kaisi lag rahi hai?",
-            TextToSpeech.QUEUE_FLUSH, null, "test"
-        )
+        val en = VoiceHelper.speakLang(this, "") == "en"
+        val sample = if (en) {
+            "Hello, I am Jarvi. How does my voice sound?"
+        } else {
+            "Hello jaan, main Jarvi hun. Meri awaaz kaisi lag rahi hai?"
+        }
+        VoiceHelper.apply(this, t, sample)
+        t.speak(sample, TextToSpeech.QUEUE_FLUSH, null, "test")
+    }
+
+    /** Chuni hui bhasha ki kitni awaaz phone mein hain, ye dikhao */
+    private fun refreshVoiceInfo() {
+        val t = tts
+        if (t == null || !ttsReady) return
+        val lang = VoiceHelper.speakLang(this, "")
+        val name = if (lang == "en") "English" else "Hindi"
+        val n = VoiceHelper.voiceCount(t, lang)
+        val how = "phone Settings mein Text-to-speech kholo, Google engine mein " +
+            name + " voice data download karo."
+        b.tvVoiceInfo.text = if (n > 0) {
+            "Is phone mein " + n + " " + name + " awaaz mili. Zyada awaaz ke liye: " + how
+        } else {
+            name + " awaaz nahi mili. " + how
+        }
     }
 
     override fun onDestroy() {
