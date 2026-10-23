@@ -83,6 +83,22 @@ object GeminiClient {
         "SMS sirf tab likho jab user ne khud saaf SMS bhejne ko kaha ho. " +
         "Agar user photo kheenchne ya lene ko kahe to ACTION: PHOTO, selfie lene ko kahe to ACTION: SELFIE " +
         "(ye khud camera kholkar button dabata hai, isliye pehle OPEN mat likho). " +
+        "Torch ya flashlight ke liye ACTION: FLASH ON ya ACTION: FLASH OFF. " +
+        "Awaaz ke liye ACTION: VOLUME UP ya VOLUME DOWN ya VOLUME MUTE ya VOLUME MAX, percent bole to ACTION: VOLUME 60. " +
+        "Battery kitni hai poochhe to ACTION: BATTERY. " +
+        "Notifications dikhane ko ACTION: NOTIFICATIONS. Wifi, bluetooth, hotspot, torch ya brightness ke tile ke liye " +
+        "pehle ACTION: QUICKSETTINGS | MORE phir ACTION: CLICK <tile ka naam>. " +
+        "Phone lock karne ko ACTION: LOCK, screenshot lene ko ACTION: SCREENSHOT. " +
+        "Settings kholne ko ACTION: SETTINGS WIFI ya BLUETOOTH ya DISPLAY ya SOUND ya BATTERY ya LOCATION ya APPS ya AIRPLANE ya MAIN. " +
+        "Gaana ya music chalane ko ACTION: MUSIC <gaane ya artist ka naam>. " +
+        "WhatsApp par kisi ko message bhejna ho to ACTION: WHATSAPP <naam ya number> :: <message> " +
+        "(ye khud chat kholkar bhej deta hai, isliye pehle OPEN mat likho). " +
+        "Raasta ya navigation ke liye ACTION: NAVIGATE <jagah>. Map par kisi jagah ko dekhne ke liye ACTION: MAPS <jagah>. " +
+        "User ki apni location (yahan ka location) dikhane ke liye ACTION: MAPS | MORE likho (jagah khali), " +
+        "phir ACTION: CLICK Your location. " +
+        "Website kholne ko ACTION: URL <link>. " +
+        "Calendar mein event ya meeting jodne ko ACTION: EVENT <title> :: <YYYY-MM-DD HH:MM> " +
+        "(aaj ki taarikh neeche di gayi hai, usi se kal, parso ya agle somvaar ki taarikh nikaalo). " +
         "Agar user ek saath kai kaam bole, to sirf PEHLA kaam ek line mein likho " +
         "aur line ke aakhir mein ' | MORE' lagao. Agla kaam baad mein alag se poochha jayega. " +
         "Pehla kaam hamesha bilkul format mein likho (OPEN: ya ACTION: se shuru), " +
@@ -91,6 +107,8 @@ object GeminiClient {
         "pehle 'OPEN: WhatsApp | MORE', phir 'ACTION: CLICK detective | MORE', " +
         "phir 'ACTION: TYPE hello | MORE', phir 'ACTION: CLICK Send', phir 'DONE: ho gaya'. " +
         "Aise command par koi aur shabd mat likho. " +
+        "Agar user 3, 4 ya 5 kaam ek saath bole, to kuch poochho mat, seedha pehla kaam karo, " +
+        "aur jab tak saare kaam poore na ho jayein har step ke aakhir mein ' | MORE' lagate raho. " +
         "Agar sawaal taaza jaankari ka ho (news, mausam, score, daam, kisi cheez ke baare mein search), " +
         "to Google Search se dekhkar sahi jawab do. " +
         "Agar user ke message ke saath [SCREEN TEXT] diya ho, to usi text ko padhkar " +
@@ -473,7 +491,7 @@ object GeminiClient {
             val l = svc.currentAppLabel()
             if (l.isNotBlank()) appLine = "Abhi user is app mein hai: " + l + ". "
         }
-        val nowStr = java.text.SimpleDateFormat("HH:mm, EEEE", java.util.Locale.ENGLISH)
+        val nowStr = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm, EEEE", java.util.Locale.ENGLISH)
             .format(java.util.Date())
         val timeLine = "Abhi ka time: " + nowStr + ". "
 
@@ -545,7 +563,7 @@ object GeminiClient {
         var finalText = cur
         var viaDone = false
         var guard = 0
-        while (guard < 8) {
+        while (guard < 16) {
             guard++
             val hasAct = cur.contains("OPEN:") || cur.contains("ACTION:")
             if (!hasAct) {
@@ -560,10 +578,12 @@ object GeminiClient {
             }
             val more = moreRegex.containsMatchIn(cur)
             val cleaned = fixAlarmTime(cur.replace(moreRegex, "").trim(), userText)
-            val res = CommandHandler.interpret(context, cleaned)
+            val res = PhoneActions.interpret(context, cleaned)
             steps.add(res)
             finalText = res
-            if (!more || steps.size >= 6 || res.contains("😕") || isErrorReply(res)) break
+            if (!more || steps.size >= 12 || isErrorReply(res) ||
+                res.startsWith("Accessibility atak") || res.startsWith("Pehle Permissions")
+            ) break
 
             // Agla step: kaam hone do, naya screen dekho
             nap(2600)
@@ -572,7 +592,8 @@ object GeminiClient {
             val agentMsg = "[AGENT] Poora kaam jo user ne bola: " + userText +
                 "\nAbhi tak ho gaya: " + steps.joinToString(" | ") +
                 "\n\n[SCREEN TEXT]\n" + (if (st.isBlank()) "(khali)" else st) +
-                "\n\nAgar kaam abhi baaki hai to agla sirf ek kaam ek line mein likho " +
+                "\n\nAgar pichla step fail hua (😕) to ek baar doosre tareeke se try karo ya agle kaam par badho. " +
+                "Agar kaam abhi baaki hai to agla sirf ek kaam ek line mein likho " +
                 "(OPEN: ya ACTION: ...). Agar uske baad bhi kaam baaki rahega to line ke aakhir mein " +
                 "' | MORE' lagao. Agar poora ho gaya ho to sirf likho: DONE: <ek chhota pyaara message>."
             val next = ArrayList<Pair<String, String>>(base)
@@ -580,6 +601,22 @@ object GeminiClient {
             next.add(Pair("user", agentMsg))
             cur = askWith(apiKey, mergeSame(next), prompt, false, null)
             cur = harvest(context, cur)
+            // Format na mila (na OPEN/ACTION na DONE): ek baar sakhti se dobara poochho
+            if (!isErrorReply(cur) && !cur.contains("OPEN:") && !cur.contains("ACTION:") &&
+                !cur.contains("DONE:")
+            ) {
+                val fix = ArrayList<Pair<String, String>>(next)
+                fix.add(Pair("model", cur))
+                fix.add(
+                    Pair(
+                        "user",
+                        "[AGENT] Format follow nahi kiya. Agar kaam baaki hai to agla kaam sirf ek line mein " +
+                            "likho (OPEN: ya ACTION: ...). Agar poora ho gaya ho to sirf likho: DONE: <chhota message>."
+                    )
+                )
+                val r2 = askWith(apiKey, mergeSame(fix), prompt, false, null)
+                if (!isErrorReply(r2)) cur = harvest(context, r2)
+            }
             if (isErrorReply(cur)) {
                 finalText = cur
                 break
