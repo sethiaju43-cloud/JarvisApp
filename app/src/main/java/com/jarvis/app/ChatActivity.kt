@@ -41,7 +41,15 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         b.rvChat.layoutManager = LinearLayoutManager(this)
         b.rvChat.adapter = adapter
 
-        addMessage("Haan! Main yahan hun. Bolo, kya karna hai? 😊", false)
+        // Purani chat wapas dikhao, na ho to greeting
+        val saved = ChatStore.load(this)
+        if (saved.isEmpty()) {
+            addMessage("Haan! Main yahan hun. Bolo, kya karna hai? 😊", false)
+        } else {
+            messages.addAll(saved)
+            adapter.notifyDataSetChanged()
+            b.rvChat.scrollToPosition(messages.size - 1)
+        }
 
         b.btnBack.setOnClickListener { finish() }
         b.btnSend.setOnClickListener { sendFromInput() }
@@ -92,6 +100,13 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Pehle seedha command check karo (app kholna, back, home...)
         val cmdReply = CommandHandler.handle(this, text)
         if (cmdReply != null) {
+            // "Bhool jao" bola to chat bhi saaf kar do
+            if (cmdReply.contains("sab bhool gayi")) {
+                messages.clear()
+                history.clear()
+                adapter.notifyDataSetChanged()
+                ChatStore.clear(this)
+            }
             addMessage(cmdReply, false)
             speak(cmdReply)
             return
@@ -114,6 +129,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 history.add("model" to finalReply)
                 messages[thinkingIndex] = ChatMessage(finalReply, false)
                 adapter.notifyItemChanged(thinkingIndex)
+                ChatStore.save(this@ChatActivity, messages)
                 b.rvChat.scrollToPosition(messages.size - 1)
                 speak(finalReply)
             }
@@ -124,6 +140,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         messages.add(ChatMessage(text, isUser))
         adapter.notifyItemInserted(messages.size - 1)
         b.rvChat.scrollToPosition(messages.size - 1)
+        ChatStore.save(this, messages)
     }
 
     private fun speak(text: String) {
