@@ -16,10 +16,13 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var b: ActivityChatBinding
     private val messages = mutableListOf<ChatMessage>()
-    private val history = mutableListOf<Pair<String, String>>()
     private lateinit var adapter: MessageAdapter
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var voiceWarned = false
+
+    // Kitne jawab abhi aane baaki hain ("..." dikh raha hai)
+    private var inFlight = 0
 
     private val voiceLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
@@ -41,16 +44,6 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         b.rvChat.layoutManager = LinearLayoutManager(this)
         b.rvChat.adapter = adapter
 
-        // Purani chat wapas dikhao, na ho to greeting
-        val saved = ChatStore.load(this)
-        if (saved.isEmpty()) {
-            addMessage("Haan! Main yahan hun. Bolo, kya karna hai? 😊", false)
-        } else {
-            messages.addAll(saved)
-            adapter.notifyDataSetChanged()
-            b.rvChat.scrollToPosition(messages.size - 1)
-        }
-
         b.btnBack.setOnClickListener { finish() }
         b.btnSend.setOnClickListener { sendFromInput() }
         b.btnVoice.setOnClickListener { startVoice() }
@@ -60,6 +53,24 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 true
             } else false
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Floating Jarvi ki baatein bhi yahin dikhni chahiye, isliye har baar save ki hui chat dobara lo
+        if (inFlight == 0) reloadFromStore()
+    }
+
+    private fun reloadFromStore() {
+        val saved = ChatStore.load(this)
+        messages.clear()
+        if (saved.isEmpty()) {
+            messages.add(ChatMessage("Haan! Main yahan hun. Bolo, kya karna hai? 😊", false))
+        } else {
+            messages.addAll(saved)
+        }
+        adapter.notifyDataSetChanged()
+        b.rvChat.scrollToPosition(messages.size - 1)
     }
 
     override fun onInit(status: Int) {
@@ -94,74 +105,73 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         sendMessage(t)
     }
 
-    private fun sendMessage(text: String) {
-        addMessage(text, true)
-
-        // Pehle "bhejun?" poochha tha to ab Haan/Nahi ka jawab dekho
+    /** Peeche ke thread par chalta hai: Haan/Nahi, seedha command, phir Gemini */
+    private fun work(text: String): String {
+        val ctx = applicationContext
         if (GeminiClient.hasPending()) {
-            val ph = addPlaceholder()
-            Thread {
-                var pr: String? = null
-                try {
-                    pr = GeminiClient.answerPending(applicationContext, text)
-                } catch (e: Exception) {
-                }
-                val result = pr
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    if (result != null) {
-                        fillPlaceholder(ph, result)
-                    } else {
-                        removePlaceholder(ph)
-                        routeMessage(text)
-                    }
-                }
-            }.start()
-            return
+            val pr = GeminiClient.answerPending(ctx, text)
+            if (pr != null) return pr
         }
-        routeMessage(text)
+        val cmd = CommandHandler.handle(ctx, text)
+        if (cmd != null) return cmd
+        val key = ApiKeyStore.getKey(ctx)
+        // Asli yaaddasht GeminiClient ke paas hai, yahan sirf aakhri baat bhejni hai
+        return GeminiClient.askSmart(ctx, key, listOf(Pair("user", text)))
     }
 
-    private fun routeMessage(text: String) {
-        // Pehle seedha command check karo (app kholna, back, home...)
-        val cmdReply = CommandHandler.handle(this, text)
-        if (cmdReply != null) {
-            // "Bhool jao" bola to chat bhi saaf kar do
-            if (cmdReply.contains("sab bhool gayi")) {
-                messages.clear()
-                history.clear()
-                adapter.notifyDataSetChanged()
-                ChatStore.clear(this)
+    private fun sendMessage(text: String) {
+        // Pehla kaam chal raha ho to naya shuru mat karo (sirf "ruko" chalega)
+        if (inFlight > 0) {
+            val low = text.lowercase().trim()
+            if (low == "ruko" || low == "ruk" || low == "stop" || low == "bas" ||
+                low == "रुको" || low == "स्टॉप"
+            ) {
+                GeminiClient.requestStop()
+                Toast.makeText(this, "Ruk rahi hun 🛑", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Ek minute jaan, pehla kaam ho raha hai ⏳", Toast.LENGTH_SHORT).show()
             }
-            addMessage(cmdReply, false)
-            speak(cmdReply)
             return
         }
 
-        // Seedha command nahi mila to Gemini samjhega aur jawab dega
-        history.add("user" to text)
+        addMessage(text, true)
         val placeholder = addPlaceholder()
-        val key = ApiKeyStore.getKey(applicationContext)
-        val snapshot = history.toList()
 
         Thread {
-            var reply = "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
+            var r: String? = null
             try {
-                reply = GeminiClient.askSmart(applicationContext, key, snapshot)
+                r = work(text)
             } catch (e: Exception) {
             }
-            val finalReply = reply
+            val reply = r ?: "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
+            // Chat screen band ho tab bhi jawab save rahe
+            ChatStore.append(applicationContext, reply, false)
             runOnUiThread {
-                // Chat screen band ho chuki ho to kuch mat likho
+                inFlight--
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                history.add("model" to finalReply)
-                fillPlaceholder(placeholder, finalReply)
+                if (reply.contains("sab bhool gayi")) {
+                    // "Bhool jao" bola: chat saaf, sirf ye jawab dikhao
+                    messages.clear()
+                    messages.add(ChatMessage(reply, false))
+                    adapter.notifyDataSetChanged()
+                    speak(reply)
+                } else {
+                    fillPlaceholder(placeholder, reply)
+                }
             }
         }.start()
     }
 
+    private fun addMessage(text: String, isUser: Boolean) {
+        messages.add(ChatMessage(text, isUser))
+        adapter.notifyItemInserted(messages.size - 1)
+        b.rvChat.scrollToPosition(messages.size - 1)
+        ChatStore.append(this, text, isUser)
+    }
+
     /** "..." wala message jodo aur uski pehchaan lautao (jagah ka number yaad nahi rakhte) */
     private fun addPlaceholder(): ChatMessage {
+        inFlight++
         val p = ChatMessage("...", false)
         messages.add(p)
         adapter.notifyItemInserted(messages.size - 1)
@@ -169,38 +179,31 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return p
     }
 
-    /** "..." ki jagah jawab likho. Agar "..." hat chuka ho (bhool jao) to chupchaap chhod do */
+    /** "..." ki jagah jawab likho. Agar "..." hat chuka ho to chupchaap chhod do */
     private fun fillPlaceholder(p: ChatMessage, text: String) {
         val idx = messages.indexOfFirst { it === p }
         if (idx < 0) return
         messages[idx] = ChatMessage(text, false)
         adapter.notifyItemChanged(idx)
-        ChatStore.save(this, messages)
         b.rvChat.scrollToPosition(messages.size - 1)
         speak(text)
-    }
-
-    private fun removePlaceholder(p: ChatMessage) {
-        val idx = messages.indexOfFirst { it === p }
-        if (idx < 0) return
-        messages.removeAt(idx)
-        adapter.notifyItemRemoved(idx)
-    }
-
-    private fun addMessage(text: String, isUser: Boolean) {
-        messages.add(ChatMessage(text, isUser))
-        adapter.notifyItemInserted(messages.size - 1)
-        b.rvChat.scrollToPosition(messages.size - 1)
-        ChatStore.save(this, messages)
     }
 
     private fun speak(text: String) {
         val t = tts
         if (t != null && ttsReady) {
-            VoiceHelper.apply(this, t)
             var s = text.replace(Regex("[\\p{So}\\p{Cn}\\uFE0F\\u200D]"), " ")
             s = s.replace("*", "").replace("#", "").replace(Regex("\\s+"), " ").trim()
             if (s.isEmpty()) s = "Ji"
+            val okVoice = VoiceHelper.apply(this, t, s)
+            if (!okVoice && !voiceWarned && VoiceHelper.speakLang(this, s) == "en") {
+                voiceWarned = true
+                Toast.makeText(
+                    this,
+                    "English awaaz nahi mili. Phone Settings mein Text-to-speech se download kar lo",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
             t.speak(s.take(3500), TextToSpeech.QUEUE_FLUSH, null, "jarvis")
         }
     }
