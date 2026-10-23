@@ -43,9 +43,12 @@ class SettingsActivity : AppCompatActivity() {
         })
 
         // API key
-        b.etKey.setText(prefs.getString("api_key", ""))
+        // Purani khuli key ho to taale mein daalkar hata do
+        val savedKey = ApiKeyStore.getKey(this)
+        ApiKeyStore.removeOldCopy(this)
+        b.etKey.setText(savedKey)
         b.btnSaveKey.setOnClickListener {
-            prefs.edit().putString("api_key", b.etKey.text.toString().trim()).apply()
+            ApiKeyStore.setKey(this, b.etKey.text.toString().trim())
             Toast.makeText(this, "Key save ho gayi ✅", Toast.LENGTH_SHORT).show()
         }
 
