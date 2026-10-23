@@ -167,7 +167,8 @@ class FloatingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForegroundNotification()
+        val fromBoot = intent?.getBooleanExtra("from_boot", false) ?: false
+        startForegroundNotification(fromBoot)
         if (floatView == null && Settings.canDrawOverlays(this)) {
             showFloating()
         }
@@ -176,7 +177,7 @@ class FloatingService : Service() {
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
-    private fun startForegroundNotification() {
+    private fun startForegroundNotification(fromBoot: Boolean) {
         val channelId = "jarvis_channel"
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -201,7 +202,7 @@ class FloatingService : Service() {
             val micOk = ContextCompat.checkSelfPermission(
                 this, Manifest.permission.RECORD_AUDIO
             ) == PackageManager.PERMISSION_GRANTED
-            if (micOk) {
+            if (micOk && !fromBoot) {
                 type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             }
             startForeground(1, notif, type)
@@ -501,6 +502,25 @@ class FloatingService : Service() {
         pet?.think(30000)
         say("Soch rahi hun... 💭", 20000L)
 
+        // Pehle poochha tha "bhejun?" to ab Haan/Nahi ka jawab dekho
+        if (GeminiClient.hasPending()) {
+            Thread {
+                var pr: String? = null
+                try {
+                    pr = GeminiClient.answerPending(applicationContext, text)
+                } catch (e: Exception) {
+                }
+                val result = pr
+                handler.post {
+                    if (result != null) reply(result) else routeSpoken(text)
+                }
+            }.start()
+            return
+        }
+        routeSpoken(text)
+    }
+
+    private fun routeSpoken(text: String) {
         val cmdReply = CommandHandler.handle(this, text)
         if (cmdReply != null) {
             reply(cmdReply)
@@ -523,6 +543,10 @@ class FloatingService : Service() {
                 while (history.size > 16) {
                     history.removeAt(0)
                     history.removeAt(0)
+                }
+                // "Bhejun?" poochha hai to bolne ke baad khud sun lo (Haan/Nahi ke liye)
+                if (GeminiClient.hasPending()) {
+                    wantListenAfter = (tts != null && ttsReady)
                 }
                 reply(finalReply)
             }
