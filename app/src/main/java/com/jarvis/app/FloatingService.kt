@@ -76,6 +76,11 @@ class FloatingService : Service() {
     private var ttsReady = false
     private var voiceWarned = false
 
+    // Pehla kaam chal raha hai? (agar 90 second se zyada ho to atka hua maano)
+    @Volatile
+    private var working = false
+    private var workStart = 0L
+
     private val idleLines = listOf(
         "Hello jaan! 😊", "Kya kar rahe ho? 😀", "Main yahan hun! 🙌",
         "Bore ho rahe ho? 🤔", "Mujhse baat karo na 💕",
@@ -206,7 +211,16 @@ class FloatingService : Service() {
             if (micOk && !fromBoot) {
                 type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             }
-            startForeground(1, notif, type)
+            try {
+                startForeground(1, notif, type)
+            } catch (e: Exception) {
+                // Android ne mic wala type nahi diya: bina mic ke chalu karo
+                try {
+                    startForeground(1, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                } catch (e2: Exception) {
+                    stopSelf()
+                }
+            }
         } else {
             startForeground(1, notif)
         }
@@ -376,6 +390,7 @@ class FloatingService : Service() {
 
     /** User ki baat ka jawab */
     private fun reply(text: String) {
+        working = false
         lastTouch = System.currentTimeMillis()
         ChatStore.append(applicationContext, text, false)
         speakOut(text)
@@ -515,6 +530,22 @@ class FloatingService : Service() {
     // ---------- Jo bola use samajhna ----------
     private fun handleSpoken(text: String) {
         lastTouch = System.currentTimeMillis()
+
+        // Pehla kaam abhi chal raha ho to naya shuru mat karo (sirf "ruko" chalega)
+        if (working && System.currentTimeMillis() - workStart < 90000L) {
+            val low = text.lowercase().trim()
+            if (low == "ruko" || low == "ruk" || low == "stop" || low == "bas" ||
+                low == "रुको" || low == "स्टॉप"
+            ) {
+                GeminiClient.requestStop()
+                say("Ruk rahi hun... 🛑", 2500L)
+            } else {
+                say("Ek minute jaan, pehla kaam ho raha hai ⏳", 3000L)
+            }
+            return
+        }
+        working = true
+        workStart = System.currentTimeMillis()
         ChatStore.append(applicationContext, text, true)
         pet?.think(30000)
         say("Soch rahi hun... 💭", 20000L)
