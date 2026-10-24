@@ -409,6 +409,29 @@ object GeminiClient {
     }
 
     /**
+     * Kai-step kaam ke beech "Send" dabane se pehle poochho (jaise WhatsApp chat mein message bhejna).
+     * Pehla hi kaam "Send dabao" ho (user ne khud bola) to nahi poochte.
+     */
+    private fun confirmSendClick(reply: String, steps: List<String>): String? {
+        if (steps.isEmpty()) return null
+        val ai = reply.indexOf("ACTION:")
+        if (ai < 0 || reply.indexOf("OPEN:") >= 0) return null
+        val line = reply.substring(ai + 7).lines().first().trim()
+        if (!line.uppercase().startsWith("CLICK")) return null
+        val name = line.drop(5).trim().trim('"', '\'').lowercase()
+        val isSend = name.startsWith("send") || name.contains("bhej") ||
+            name.contains("भेज") || name.contains("सेंड")
+        if (!isSend) return null
+        val typed = steps.lastOrNull { it.startsWith("Likh diya: ") }
+            ?.removePrefix("Likh diya: ")?.removeSuffix(" ✍️")?.trim()
+        return if (!typed.isNullOrBlank()) {
+            "Ye message bhej dun: '" + typed + "'? Haan ya Nahi bolo 💬"
+        } else {
+            "Send dabaun? Haan ya Nahi bolo 💬"
+        }
+    }
+
+    /**
      * Pehle "bhejun?" poochha tha to ab user ka jawab dekho.
      * Haan -> kaam karo, Nahi -> rok do, kuch aur bola -> null (naya command samjho).
      * Ye background thread se hi bulao.
@@ -770,7 +793,7 @@ object GeminiClient {
             val cleaned = fixAlarmTime(cur.replace(moreRegex, "").trim(), userText)
             // SMS, call, WhatsApp: pehle user se poochho (Settings mein band ho to seedha karo)
             if (confirmOn(context)) {
-                val q = confirmQuestion(cleaned)
+                val q = confirmQuestion(cleaned) ?: confirmSendClick(cleaned, steps)
                 if (q != null) {
                     setPending(cleaned)
                     finalText = q
