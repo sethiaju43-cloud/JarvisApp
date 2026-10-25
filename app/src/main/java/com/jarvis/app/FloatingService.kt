@@ -360,7 +360,8 @@ class FloatingService : Service() {
 
     // ---------- Bolna ----------
     /** Emoji aur symbols hata do taaki awaaz mein "heart eyes" jaisa na bole */
-    private fun speakable(s: String): String {
+    private fun speakable(s0: String): String {
+        val s = Honesty.forSpeech(s0)
         var t = s.replace(Regex("[\\p{So}\\p{Cn}\\uFE0F\\u200D]"), " ")
         t = t.replace("*", "").replace("#", "").replace("_", " ")
         t = t.replace(Regex("\\s+"), " ").trim()
@@ -409,8 +410,8 @@ class FloatingService : Service() {
         lastTouch = System.currentTimeMillis()
         val p = pet ?: return
         // Jarvi koi kaam kar rahi ho to tap karte hi ruk jaaye
-        if (GeminiClient.isBusy()) {
-            GeminiClient.requestStop()
+        if (Brain.isBusy()) {
+            Brain.requestStop()
             say("Ruk rahi hun... 🛑", 2500L)
             return
         }
@@ -505,6 +506,7 @@ class FloatingService : Service() {
             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
         )
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
+        i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, Prefs.voiceOffline(applicationContext))
         sr.startListening(i)
     }
 
@@ -537,7 +539,7 @@ class FloatingService : Service() {
             if (low == "ruko" || low == "ruk" || low == "stop" || low == "bas" ||
                 low == "रुको" || low == "स्टॉप"
             ) {
-                GeminiClient.requestStop()
+                Brain.requestStop()
                 say("Ruk rahi hun... 🛑", 2500L)
             } else {
                 say("Ek minute jaan, pehla kaam ho raha hai ⏳", 3000L)
@@ -551,11 +553,11 @@ class FloatingService : Service() {
         say("Soch rahi hun... 💭", 20000L)
 
         // Pehle poochha tha "bhejun?" to ab Haan/Nahi ka jawab dekho
-        if (GeminiClient.hasPending()) {
+        if (Brain.hasPending()) {
             Thread {
                 var pr: String? = null
                 try {
-                    pr = GeminiClient.answerPending(applicationContext, text)
+                    pr = Brain.answerPending(applicationContext, text)
                 } catch (e: Exception) {
                 }
                 val result = pr
@@ -578,25 +580,24 @@ class FloatingService : Service() {
             }
             val cr = cmdReply
             handler.post {
-                if (cr != null) reply(cr) else askGemini(text)
+                if (cr != null) reply(cr) else askBrain(text)
             }
         }.start()
     }
 
-    private fun askGemini(text: String) {
-        // Asli yaaddasht GeminiClient ke paas hai, yahan sirf aakhri baat bhejni hai
+    private fun askBrain(text: String) {
+        // Asli yaaddasht Brain ke paas hai, yahan sirf aakhri baat bhejni hai
         val snapshot = listOf(Pair("user", text))
-        val key = ApiKeyStore.getKey(applicationContext)
         Thread {
             var r = "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
             try {
-                r = GeminiClient.askSmart(applicationContext, key, snapshot)
+                r = Brain.askSmart(applicationContext, snapshot)
             } catch (e: Exception) {
             }
             val finalReply = r
             handler.post {
                 // "Bhejun?" poochha hai to bolne ke baad khud sun lo (Haan/Nahi ke liye)
-                if (GeminiClient.hasPending()) {
+                if (Brain.hasPending()) {
                     wantListenAfter = (tts != null && ttsReady)
                 }
                 reply(finalReply)
