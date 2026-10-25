@@ -1,17 +1,26 @@
 package com.jarvis.app
 
-import android.app.Activity
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.Uri
 import android.os.Bundle
-import android.speech.RecognizerIntent
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.jarvis.app.databinding.ActivityChatBinding
 
+/** Main chat screen: online + offline AI ek hi jagah */
 class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var b: ActivityChatBinding
@@ -20,18 +29,32 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var voiceWarned = false
+    private var voice: VoiceInput? = null
+    private var netCb: ConnectivityManager.NetworkCallback? = null
 
     // Kitne jawab abhi aane baaki hain ("..." dikh raha hai)
     private var inFlight = 0
+    private var curPh: ChatMessage? = null
 
-    private val voiceLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-            if (res.resultCode == Activity.RESULT_OK) {
-                val list = res.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                val text = list?.firstOrNull()
-                if (!text.isNullOrBlank()) sendMessage(text)
-            }
-        }
+    // Jodi hui photo/file (agle message ke saath jayegi)
+    private var pendingImage: String? = null
+    private var pendingFile: Attachments.FileText? = null
+
+    private val micPerm = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) startVoice() else Toast.makeText(this, "Mic ki permission ke bina bol nahi sakte 🎤", Toast.LENGTH_LONG).show()
+    }
+    private val camPerm = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok) cameraLauncher.launch(null) else Toast.makeText(this, "Camera permission chahiye", Toast.LENGTH_LONG).show()
+    }
+    private val galleryLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) attachImageUri(uri)
+    }
+    private val cameraLauncher = registerForActivityResult(ActivityResultContracts.TakePicturePreview()) { bmp ->
+        if (bmp != null) attachBitmap(bmp)
+    }
+    private val fileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) attachFile(uri)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,26 +62,85 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         setContentView(b.root)
 
         tts = TextToSpeech(this, this)
-
         adapter = MessageAdapter(messages)
-        b.rvChat.layoutManager = LinearLayoutManager(this)
-        b.rvChat.adapter = adapter
+        b.rv.layoutManager = LinearLayoutManager(this)
+        b.rv.adapter = adapter
 
         b.btnBack.setOnClickListener { finish() }
         b.btnSend.setOnClickListener { sendFromInput() }
-        b.btnVoice.setOnClickListener { startVoice() }
+        b.btnMic.setOnClickListener { onMicClicked() }
+        b.btnFresh.setOnClickListener { runFreshMind() }
+        b.btnMore.setOnClickListener { showMenu(it) }
+        b.btnAttach.setOnClickListener { showAttachMenu(it) }
+        b.btnStopSpeak.setOnClickListener {
+            tts?.stop()
+            b.btnStopSpeak.visibility = View.GONE
+        }
+        b.tvModel.setOnClickListener { startActivity(Intent(this, ModelsActivity::class.java)) }
         b.etInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_SEND) {
                 sendFromInput()
                 true
             } else false
         }
+
+        voice = VoiceInput(this, object : VoiceInput.Callback {
+            override fun onPartial(text: String) {
+                b.etInput.setText(text)
+                b.etInput.setSelection(text.length)
+            }
+
+            override fun onFinal(text: String) {
+                b.etInput.setText(text)
+                b.etInput.setSelection(text.length)
+                if (Prefs.voiceAutoSend(this@ChatActivity)) {
+                    sendFromInput()
+                } else {
+                    showHint("✏️ Jo suna wo upar likha hai. Theek ho to ➤ dabao, ya badal lo.")
+                }
+            }
+
+            override fun onError(msg: String) {
+                Toast.makeText(this@ChatActivity, msg, Toast.LENGTH_LONG).show()
+                showHint(null)
+            }
+
+            override fun onState(listening: Boolean) {
+                b.btnMic.text = if (listening) "🔴" else "🎤"
+                if (listening) {
+                    val off = Prefs.voiceOffline(this@ChatActivity) && VoiceInput.onDeviceAvailable(this@ChatActivity)
+                    showHint("🎤 Sun rahi hun... (" + (if (off) "offline voice" else "online voice") + ") dobara dabao rukne ke liye")
+                }
+            }
+        })
+
+        netCb = NetworkMonitor.register(this) { runOnUiThread { refreshStatus() } }
     }
 
     override fun onResume() {
         super.onResume()
-        // Floating Jarvi ki baatein bhi yahin dikhni chahiye, isliye har baar save ki hui chat dobara lo
         if (inFlight == 0) reloadFromStore()
+        refreshStatus()
+    }
+
+    private fun refreshStatus() {
+        if (!::b.isInitialized) return
+        val online = NetworkMonitor.isOnline(this)
+        b.tvNet.text = if (online) "🟢 Online" else "🔴 Offline"
+        Thread {
+            val label = if (ModelRouter.lastLabel.isNotBlank() && inFlight == 0 && messages.size > 1)
+                ModelRouter.lastLabel else ModelRouter.previewLabel(this)
+            runOnUiThread { b.tvModel.text = "Model: $label  (tap: models)" }
+        }.start()
+    }
+
+    private fun showHint(t: String?) {
+        if (t == null) {
+            b.tvHint.visibility = View.GONE
+        } else {
+            b.tvHint.text = t
+            b.tvHint.visibility = View.VISIBLE
+        }
     }
 
     private fun reloadFromStore() {
@@ -70,7 +152,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             messages.addAll(saved)
         }
         adapter.notifyDataSetChanged()
-        b.rvChat.scrollToPosition(messages.size - 1)
+        b.rv.scrollToPosition(messages.size - 1)
     }
 
     override fun onInit(status: Int) {
@@ -78,137 +160,361 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val t = tts
             if (t != null) {
                 VoiceHelper.apply(this, t)
+                t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        runOnUiThread { b.btnStopSpeak.visibility = View.VISIBLE }
+                    }
+
+                    override fun onDone(utteranceId: String?) {
+                        runOnUiThread { b.btnStopSpeak.visibility = View.GONE }
+                    }
+
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) {
+                        runOnUiThread { b.btnStopSpeak.visibility = View.GONE }
+                    }
+
+                    override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                        runOnUiThread { b.btnStopSpeak.visibility = View.GONE }
+                    }
+                })
             }
             ttsReady = true
         }
     }
 
-    private fun startVoice() {
-        val lang = getSharedPreferences("jarvis", MODE_PRIVATE)
-            .getString("lang", "hi-IN") ?: "hi-IN"
-        val i = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
-            putExtra(RecognizerIntent.EXTRA_PROMPT, "Bolo...")
-        }
-        try {
-            voiceLauncher.launch(i)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Is phone mein voice input nahi mila", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun sendFromInput() {
-        val t = b.etInput.text.toString().trim()
-        if (t.isEmpty()) return
-        b.etInput.setText("")
-        sendMessage(t)
-    }
-
-    /** Peeche ke thread par chalta hai: Haan/Nahi, seedha command, phir Gemini */
-    private fun work(text: String): String {
-        val ctx = applicationContext
-        if (GeminiClient.hasPending()) {
-            val pr = GeminiClient.answerPending(ctx, text)
-            if (pr != null) return pr
-        }
-        val cmd = CommandHandler.handle(ctx, text)
-        if (cmd != null) return cmd
-        val key = ApiKeyStore.getKey(ctx)
-        // Asli yaaddasht GeminiClient ke paas hai, yahan sirf aakhri baat bhejni hai
-        return GeminiClient.askSmart(ctx, key, listOf(Pair("user", text)))
-    }
-
-    private fun sendMessage(text: String) {
-        // Pehla kaam chal raha ho to naya shuru mat karo (sirf "ruko" chalega)
-        if (inFlight > 0) {
-            val low = text.lowercase().trim()
-            if (low == "ruko" || low == "ruk" || low == "stop" || low == "bas" ||
-                low == "रुको" || low == "स्टॉप"
-            ) {
-                GeminiClient.requestStop()
-                Toast.makeText(this, "Ruk rahi hun 🛑", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Ek minute jaan, pehla kaam ho raha hai ⏳", Toast.LENGTH_SHORT).show()
-            }
+    // ---------------- Voice ----------------
+    private fun onMicClicked() {
+        val v = voice ?: return
+        if (v.listening) {
+            v.stop()
             return
         }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            micPerm.launch(Manifest.permission.RECORD_AUDIO)
+            return
+        }
+        startVoice()
+    }
 
-        addMessage(text, true)
-        val placeholder = addPlaceholder()
+    private fun startVoice() {
+        tts?.stop()
+        voice?.start()
+    }
 
-        Thread {
-            var r: String? = null
-            try {
-                r = work(text)
-            } catch (e: Exception) {
+    // ---------------- Attach ----------------
+    private fun showAttachMenu(anchor: View) {
+        val pm = PopupMenu(this, anchor)
+        pm.menu.add(0, 1, 0, "🖼 Gallery se photo")
+        pm.menu.add(0, 2, 1, "📷 Camera se photo")
+        pm.menu.add(0, 3, 2, "📄 Text file (summary/rewrite)")
+        pm.setOnMenuItemClickListener { mi ->
+            when (mi.itemId) {
+                1, 2 -> {
+                    if (!NetworkMonitor.isOnline(this) || ModelRouter.plan(this, Task.VISION, true).isEmpty()) {
+                        Toast.makeText(this, "Photo samajhne ke liye internet aur online vision model (jaise Gemini) chahiye. Local model abhi photo nahi padhta.", Toast.LENGTH_LONG).show()
+                    } else if (mi.itemId == 1) {
+                        galleryLauncher.launch("image/*")
+                    } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        cameraLauncher.launch(null)
+                    } else {
+                        camPerm.launch(Manifest.permission.CAMERA)
+                    }
+                }
+                3 -> fileLauncher.launch(arrayOf("text/*", "application/json", "application/xml"))
             }
-            val reply = r ?: "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
-            // Chat screen band ho tab bhi jawab save rahe
-            ChatStore.append(applicationContext, reply, false)
+            true
+        }
+        pm.show()
+    }
+
+    private fun attachImageUri(uri: Uri) {
+        Thread {
+            val b64 = Attachments.imageToBase64(applicationContext, uri)
             runOnUiThread {
-                inFlight--
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                if (reply.contains("sab bhool gayi")) {
-                    // "Bhool jao" bola: chat saaf, sirf ye jawab dikhao
-                    messages.clear()
-                    messages.add(ChatMessage(reply, false))
-                    adapter.notifyDataSetChanged()
-                    speak(reply)
-                } else {
-                    fillPlaceholder(placeholder, reply)
+                if (b64 == null) Toast.makeText(this, "Photo padh nahi paye", Toast.LENGTH_SHORT).show()
+                else {
+                    pendingImage = b64
+                    pendingFile = null
+                    showHint("🖼 Photo jud gayi. Sawaal likho (ya khali chhodo) aur ➤ dabao.")
                 }
             }
         }.start()
     }
 
+    private fun attachBitmap(bmp: Bitmap) {
+        Thread {
+            val b64 = Attachments.bitmapToBase64(bmp)
+            runOnUiThread {
+                pendingImage = b64
+                pendingFile = null
+                showHint("📷 Photo jud gayi. Sawaal likho (ya khali chhodo) aur ➤ dabao.")
+            }
+        }.start()
+    }
+
+    private fun attachFile(uri: Uri) {
+        Thread {
+            val f = Attachments.readText(applicationContext, uri)
+            runOnUiThread {
+                if (f == null) Toast.makeText(this, "Ye file text nahi lagti (PDF/binary abhi supported nahi)", Toast.LENGTH_LONG).show()
+                else {
+                    pendingFile = f
+                    pendingImage = null
+                    showHint("📄 " + f.name + " jud gayi. Batao kya karna hai (summary, rewrite...) aur ➤ dabao.")
+                }
+            }
+        }.start()
+    }
+
+    // ---------------- Send ----------------
+    private fun sendFromInput() {
+        val t = b.etInput.text.toString().trim()
+        if (t.isEmpty() && pendingImage == null && pendingFile == null) return
+        b.etInput.setText("")
+        showHint(null)
+        sendMessage(t)
+    }
+
+    /** Peeche ke thread par: Haan/Nahi, seedha command, phir AI */
+    private fun work(text: String, image: String?, file: Attachments.FileText?): String {
+        val ctx = applicationContext
+        if (image != null) return Brain.askWithImage(ctx, text, image)
+        if (file != null) return Brain.askAboutFile(ctx, text, file.name, file.text)
+        if (Brain.hasPending()) {
+            val pr = Brain.answerPending(ctx, text)
+            if (pr != null) return pr
+        }
+        val cmd = CommandHandler.handle(ctx, text)
+        if (cmd != null) return cmd
+        return Brain.askSmart(ctx, listOf(Pair("user", text)))
+    }
+
+    private fun sendMessage(text: String) {
+        if (inFlight > 0) {
+            val low = text.lowercase().trim()
+            if (low == "ruko" || low == "ruk" || low == "stop" || low == "bas" || low == "रुको" || low == "स्टॉप") {
+                Brain.requestStop()
+                Toast.makeText(this, "Ruk rahi hun 🛑", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Ek minute, pehla kaam ho raha hai ⏳", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        tts?.stop()
+        val image = pendingImage
+        val file = pendingFile
+        pendingImage = null
+        pendingFile = null
+        val shown = when {
+            image != null -> "🖼 " + text
+            file != null -> "📄 " + file.name + (if (text.isNotBlank()) "\n" + text else "")
+            else -> text
+        }
+        addMessage(shown, true)
+        addPlaceholder("...")
+
+        ModelRouter.onStatus = { s -> runOnUiThread { setPlaceholder(s) } }
+        ModelRouter.onPartial = { p -> if (p.isNotBlank()) runOnUiThread { setPlaceholder(p) } }
+
+        Thread {
+            var r: String? = null
+            try {
+                r = work(text, image, file)
+            } catch (e: Throwable) {
+            }
+            val reply = r ?: "Kuch dikkat aa gayi 🥺 Dobara bolo"
+            ChatStore.append(applicationContext, reply, false)
+            ModelRouter.onStatus = null
+            ModelRouter.onPartial = null
+            runOnUiThread {
+                inFlight--
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val rr = Brain.lastRoute
+                if (rr != null && rr.switched) {
+                    Toast.makeText(
+                        this,
+                        "ℹ️ " + rr.failedBefore.joinToString(", ") + " → ab " + (rr.backend?.label ?: "") + " use hua",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                if (reply.contains("sab bhool gayi")) {
+                    messages.clear()
+                    messages.add(ChatMessage(reply, false))
+                    adapter.notifyDataSetChanged()
+                    speak(reply)
+                } else {
+                    fillPlaceholder(reply)
+                }
+                refreshStatus()
+                checkPendingMemory()
+            }
+        }.start()
+    }
+
+    // ---------------- Fresh Mind ----------------
+    private fun runFreshMind() {
+        if (inFlight > 0) {
+            Toast.makeText(this, "Pehle chal raha kaam khatam hone do ⏳", Toast.LENGTH_SHORT).show()
+            return
+        }
+        addPlaceholder("🧠 Fresh Mind: baat-cheet ko dobara dekh rahi hun...")
+        ModelRouter.onStatus = { s -> runOnUiThread { setPlaceholder("🧠 $s") } }
+        Thread {
+            var res: FreshMind.Result? = null
+            try {
+                res = FreshMind.run(applicationContext)
+            } catch (e: Throwable) {
+            }
+            val text = res?.text ?: "Fresh Mind mein dikkat aa gayi 🥺"
+            ModelRouter.onStatus = null
+            if (res?.ok == true) ChatStore.append(applicationContext, text, false)
+            runOnUiThread {
+                inFlight--
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                fillPlaceholder(text, speakIt = false)
+                refreshStatus()
+                val sum = res?.summary
+                if (res?.ok == true && !sum.isNullOrBlank()) {
+                    AlertDialog.Builder(this).setTitle("Updated summary save karun?")
+                        .setMessage(sum + "\n\n(Ye memory mein 'saar' ki tarah save hoga, jise aap kabhi bhi hata sakte ho.)")
+                        .setPositiveButton("Haan, save karo") { _, _ ->
+                            MemoryStore.add(this, sum, "summary", auto = false, force = true)
+                            Toast.makeText(this, "Memory mein save ho gaya 📝", Toast.LENGTH_SHORT).show()
+                        }.setNegativeButton("Nahi", null).show()
+                }
+            }
+        }.start()
+    }
+
+    // ---------------- Menu ----------------
+    private fun showMenu(anchor: View) {
+        val pm = PopupMenu(this, anchor)
+        pm.menu.add(0, 1, 0, "➕ Nayi chat")
+        pm.menu.add(0, 2, 1, "🕘 Chat history")
+        pm.menu.add(0, 3, 2, "📱 Local AI models")
+        pm.menu.add(0, 4, 3, "☁️ Online AI providers")
+        pm.menu.add(0, 5, 4, "📝 Memory")
+        pm.menu.add(0, 6, 5, "⚙️ Settings")
+        pm.menu.add(0, 7, 6, "🗑 Chat saaf karo")
+        pm.setOnMenuItemClickListener { mi ->
+            when (mi.itemId) {
+                1 -> newChat()
+                2 -> startActivity(Intent(this, HistoryActivity::class.java))
+                3 -> startActivity(Intent(this, ModelsActivity::class.java))
+                4 -> startActivity(Intent(this, ProvidersActivity::class.java))
+                5 -> startActivity(Intent(this, MemoryActivity::class.java))
+                6 -> startActivity(Intent(this, SettingsActivity::class.java))
+                7 -> {
+                    if (inFlight == 0) {
+                        ChatStore.clear(this)
+                        Brain.resetWorking(this)
+                        reloadFromStore()
+                    }
+                }
+            }
+            true
+        }
+        pm.show()
+    }
+
+    private fun newChat() {
+        if (inFlight > 0) {
+            Toast.makeText(this, "Pehle chal raha kaam khatam hone do ⏳", Toast.LENGTH_SHORT).show()
+            return
+        }
+        ChatStore.archiveCurrent(this)
+        Brain.resetWorking(this)
+        reloadFromStore()
+    }
+
+    // ---------------- Sensitive memory poochna ----------------
+    private var askingMemory = false
+
+    private fun checkPendingMemory() {
+        if (askingMemory) return
+        val list = MemoryStore.pendingList()
+        if (list.isEmpty()) return
+        val p = list[0]
+        askingMemory = true
+        AlertDialog.Builder(this).setTitle("Ye yaad rakhun?")
+            .setMessage("'" + p.text + "'\n\nYe sensitive lagta hai (" + p.reason + "), isliye aapki haan chahiye.")
+            .setPositiveButton("✅ Haan") { _, _ ->
+                MemoryStore.approvePending(this, 0)
+                askingMemory = false
+                checkPendingMemory()
+            }
+            .setNegativeButton("❌ Nahi") { _, _ ->
+                MemoryStore.rejectPending(0)
+                askingMemory = false
+                checkPendingMemory()
+            }
+            .setOnCancelListener {
+                MemoryStore.rejectPending(0)
+                askingMemory = false
+            }.show()
+    }
+
+    // ---------------- Messages ----------------
     private fun addMessage(text: String, isUser: Boolean) {
         messages.add(ChatMessage(text, isUser))
         adapter.notifyItemInserted(messages.size - 1)
-        b.rvChat.scrollToPosition(messages.size - 1)
+        b.rv.scrollToPosition(messages.size - 1)
         ChatStore.append(this, text, isUser)
     }
 
-    /** "..." wala message jodo aur uski pehchaan lautao (jagah ka number yaad nahi rakhte) */
-    private fun addPlaceholder(): ChatMessage {
+    private fun addPlaceholder(text: String) {
         inFlight++
-        val p = ChatMessage("...", false)
+        val p = ChatMessage(text, false)
+        curPh = p
         messages.add(p)
         adapter.notifyItemInserted(messages.size - 1)
-        b.rvChat.scrollToPosition(messages.size - 1)
-        return p
+        b.rv.scrollToPosition(messages.size - 1)
     }
 
-    /** "..." ki jagah jawab likho. Agar "..." hat chuka ho to chupchaap chhod do */
-    private fun fillPlaceholder(p: ChatMessage, text: String) {
+    private fun setPlaceholder(text: String) {
+        val p = curPh ?: return
         val idx = messages.indexOfFirst { it === p }
+        if (idx < 0) return
+        val n = ChatMessage(text, false)
+        messages[idx] = n
+        curPh = n
+        adapter.notifyItemChanged(idx)
+        b.rv.scrollToPosition(messages.size - 1)
+    }
+
+    private fun fillPlaceholder(text: String, speakIt: Boolean = true) {
+        val p = curPh ?: return
+        val idx = messages.indexOfFirst { it === p }
+        curPh = null
         if (idx < 0) return
         messages[idx] = ChatMessage(text, false)
         adapter.notifyItemChanged(idx)
-        b.rvChat.scrollToPosition(messages.size - 1)
-        speak(text)
+        b.rv.scrollToPosition(messages.size - 1)
+        if (speakIt) speak(text)
     }
 
     private fun speak(text: String) {
+        if (!Prefs.speakReplies(this)) return
         val t = tts
         if (t != null && ttsReady) {
-            var s = text.replace(Regex("[\\p{So}\\p{Cn}\\uFE0F\\u200D]"), " ")
+            var s = Honesty.forSpeech(text).replace(Regex("[\\p{So}\\p{Cn}\\uFE0F\\u200D]"), " ")
             s = s.replace("*", "").replace("#", "").replace(Regex("\\s+"), " ").trim()
-            if (s.isEmpty()) s = "Ji"
+            if (s.isEmpty()) return
             val okVoice = VoiceHelper.apply(this, t, s)
             if (!okVoice && !voiceWarned && VoiceHelper.speakLang(this, s) == "en") {
                 voiceWarned = true
-                Toast.makeText(
-                    this,
-                    "English awaaz nahi mili. Phone Settings mein Text-to-speech se download kar lo",
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(this, "English awaaz nahi mili. Phone Settings mein Text-to-speech se download kar lo", Toast.LENGTH_LONG).show()
             }
             t.speak(s.take(3500), TextToSpeech.QUEUE_FLUSH, null, "jarvis")
         }
     }
 
     override fun onDestroy() {
+        NetworkMonitor.unregister(this, netCb)
+        voice?.destroy()
+        ModelRouter.onStatus = null
+        ModelRouter.onPartial = null
         tts?.stop()
         tts?.shutdown()
         super.onDestroy()
