@@ -17,6 +17,10 @@ class LocalBackend(private val ctx: Context, private val m: LocalModel) : Backen
         }
         val user = req.history.lastOrNull()?.second ?: ""
         if (user.isBlank()) return Outcome(false, "Sawaal khali", ErrKind.BAD_REQUEST)
+        // Phone ke aam commands (torch, volume, call, alarm...) chhota model nahi samajhta:
+        // rules se seedha ACTION line bana do, model ko load karne ki zaroorat nahi.
+        val ruleCmd = OfflineCommands.parse(user)
+        if (ruleCmd != null) return Outcome(true, ruleCmd)
         val older = req.history.dropLast(1)
         val hist = ContextTrimmer.trim(older, 1200, 12)
         var r = LocalLlm.generate(ctx, m, req.systemLocal, hist, user, ModelRouter.onPartial)
