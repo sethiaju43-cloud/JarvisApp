@@ -1,8 +1,17 @@
 package com.jarvis.app
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.IBinder
 import android.os.StatFs
+import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import okhttp3.Request
 import java.io.File
@@ -211,5 +220,136 @@ object ModelDownloader {
         } catch (e: Exception) {
             "Check nahi ho paya: " + OnlineParsers.redact(e.message ?: "")
         }
+    }
+}
+
+/** Foreground service: model download background mein chalta rehta hai, notification mein progress dikhta hai */
+class ModelDownloadService : Service() {
+
+    private val channelId = "jarvis_model_download"
+    private val progressNotifId = 2
+    private val doneNotifId = 3
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val modelId = intent?.getStringExtra("id") ?: ""
+        val model = LocalModelCatalog.find(applicationContext, modelId)
+        val title = model?.name ?: "Model"
+
+        // startForegroundService ke baad turant startForeground zaroori hai, warna app crash hota hai
+        try {
+            val first = buildNotification(title, 0, 0L, 0L, true)
+            if (Build.VERSION.SDK_INT >= 29) {
+                startForeground(progressNotifId, first, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(progressNotifId, first)
+            }
+        } catch (e: Exception) {
+            ModelDownloader.activeId = null
+            ModelDownloader.state(modelId)?.status = "error"
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        if (model == null) {
+            ModelDownloader.activeId = null
+            stopForeground(Service.STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        val appCtx = applicationContext
+        Thread {
+            try {
+                ModelDownloader.run(appCtx, model) { st ->
+                    val pct = if (st.total > 0) (st.downloaded * 100 / st.total).toInt() else 0
+                    val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+                    nm.notify(
+                        progressNotifId,
+                        buildNotification(title, pct, st.downloaded, st.total, false)
+                    )
+                }
+            } catch (t: Throwable) {
+                ModelDownloader.activeId = null
+                ModelDownloader.state(model.id)?.let {
+                    it.status = "error"
+                    it.error = "Download mein dikkat aayi"
+                }
+            } finally {
+                finishUp(title, model.id)
+            }
+        }.start()
+
+        return START_NOT_STICKY
+    }
+
+    private fun ensureChannel(nm: NotificationManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(
+                NotificationChannel(channelId, "Model download", NotificationManager.IMPORTANCE_LOW)
+            )
+        }
+    }
+
+    private fun openAppIntent(): PendingIntent =
+        PendingIntent.getActivity(
+            this, 0, Intent(this, ModelsActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+
+    private fun buildNotification(
+        title: String,
+        pct: Int,
+        downloaded: Long,
+        total: Long,
+        indeterminate: Boolean
+    ): Notification {
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        ensureChannel(nm)
+        val text = if (downloaded > 0) {
+            (downloaded / 1048576).toString() + " / " +
+                (if (total > 0) (total / 1048576).toString() else "?") + " MB"
+        } else {
+            "Shuru ho raha hai..."
+        }
+        return NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Download: " + title)
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setProgress(100, pct, indeterminate || total <= 0)
+            .setContentIntent(openAppIntent())
+            .build()
+    }
+
+    private fun finishUp(title: String, modelId: String) {
+        val st = ModelDownloader.state(modelId)
+        val msg = when (st?.status) {
+            "done" -> "Download ho gaya"
+            "cancelled" -> "Download cancel hua"
+            else -> "Download nahi hua: " + (st?.error ?: "")
+        }
+        try {
+            stopForeground(Service.STOP_FOREGROUND_REMOVE)
+        } catch (e: Exception) {
+        }
+        try {
+            val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            ensureChannel(nm)
+            nm.notify(
+                doneNotifId,
+                NotificationCompat.Builder(this, channelId)
+                    .setContentTitle(title)
+                    .setContentText(msg)
+                    .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                    .setAutoCancel(true)
+                    .setContentIntent(openAppIntent())
+                    .build()
+            )
+        } catch (e: Exception) {
+        }
+        stopSelf()
     }
 }
