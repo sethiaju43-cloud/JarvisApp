@@ -152,10 +152,16 @@ object LocalLlm {
                 samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7)
             )
             conv = eng.createConversation(cfg)
+            // Qwen3 pehle lamba "sochta" hai, chhote phone par isme minute lag jaate hain.
+            // "/no_think" lagane se wo seedha jawab deta hai.
+            val sendText = if (m.id.contains("qwen3", true) || m.name.contains("qwen3", true)) {
+                user + " /no_think"
+            } else user
+            ModelRouter.onStatus?.invoke("Local model jawab bana raha hai (offline mein thoda dheema hota hai)...")
             val sb = StringBuilder()
             var err: Throwable? = null
             val done = CountDownLatch(1)
-            conv.sendMessageAsync(user, object : MessageCallback {
+            conv.sendMessageAsync(sendText, object : MessageCallback {
                 override fun onMessage(message: Message) {
                     sb.append(message.toString())
                     onPartial?.invoke(ThinkStripper.strip(sb.toString()))
