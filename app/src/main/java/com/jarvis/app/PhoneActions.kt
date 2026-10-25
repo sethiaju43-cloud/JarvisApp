@@ -285,7 +285,7 @@ object PhoneActions {
             ?: return label + " ki chat mein message likh diya, Send aap daba do 💬"
         var sent = svc.clickBest("send")
         if (!sent) {
-            val r = GeminiClient.visionTap(context, "Send button (paper plane icon)")
+            val r = Brain.visionTap(context, "Send button (paper plane icon)")
             sent = r.contains("par tap kar diya")
         }
         return if (sent) {
