@@ -11,8 +11,9 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * Gemini API key ko Android ke tijori (Keystore) wale taale mein rakhta hai.
- * Purani khuli key apne aap taale mein chali jaati hai.
+ * API keys aur nijji data ko Android ke tijori (Keystore) wale taale mein rakhta hai.
+ * Gemini key purane tareeke se (getKey/setKey), baaki secrets getSecret/setSecret se.
+ * seal/open: lambe data (chat, memory) ko encrypt karne ke liye.
  */
 object ApiKeyStore {
 
@@ -129,5 +130,47 @@ object ApiKeyStore {
         if (secureRead(ctx) == old) {
             oldPrefs(ctx).edit().remove(OLD_NAME).apply()
         }
+    }
+
+    // ---------- Naye helpers ----------
+    private const val SEAL_PREFIX = "enc1:"
+
+    /** Data ko encrypt karo. Taala na chale to jaisa hai waisa lautao (data khona nahi chahiye) */
+    fun seal(plain: String): String {
+        val e = encrypt(plain)
+        return if (e != null) SEAL_PREFIX + e else plain
+    }
+
+    /** seal ka ulta. Purana khula data bhi seedha padh leta hai */
+    fun open(stored: String): String {
+        return if (stored.startsWith(SEAL_PREFIX)) decrypt(stored.removePrefix(SEAL_PREFIX)) else stored
+    }
+
+    @Synchronized
+    fun getSecret(ctx: Context, name: String): String {
+        val s = securePrefs(ctx).getString("s_$name", "") ?: ""
+        return if (s.isBlank()) "" else decrypt(s)
+    }
+
+    @Synchronized
+    fun setSecret(ctx: Context, name: String, value: String) {
+        val v = value.trim()
+        val ed = securePrefs(ctx).edit()
+        if (v.isEmpty()) {
+            ed.remove("s_$name")
+        } else {
+            val enc = encrypt(v)
+            if (enc != null) ed.putString("s_$name", enc)
+        }
+        ed.apply()
+    }
+
+    fun hasSecret(ctx: Context, name: String) = getSecret(ctx, name).isNotBlank()
+
+    /** Sab secrets hatao (Privacy: sab data mitao) */
+    @Synchronized
+    fun wipeAll(ctx: Context) {
+        securePrefs(ctx).edit().clear().apply()
+        oldPrefs(ctx).edit().remove(OLD_NAME).apply()
     }
 }
