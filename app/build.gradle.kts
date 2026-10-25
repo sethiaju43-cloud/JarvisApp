@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -17,8 +19,6 @@ android {
         versionCode = 2
         versionName = "2.0"
 
-        // LiteRT-LM ki native libraries sirf 64-bit ARM (aur x86_64) ke liye hain.
-        // Redmi 13C 5G arm64 hai, isliye sirf arm64 rakha (APK chhota aur crash kam).
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -36,16 +36,18 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
-
     buildFeatures {
         viewBinding = true
     }
 
     testOptions {
         unitTests.isReturnDefaultValues = true
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
@@ -62,7 +64,7 @@ dependencies {
     // Local offline AI
     implementation("com.google.ai.edge.litertlm:litertlm-android:$litertLmVersion")
 
-    // Unit tests (JVM par chalte hain, phone ki zaroorat nahi)
+    // Unit tests
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }
