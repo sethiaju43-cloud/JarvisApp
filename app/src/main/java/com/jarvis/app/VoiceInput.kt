@@ -50,10 +50,16 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
 
     fun start() {
         if (listening) return
-        val strict = Prefs.voiceOffline(ctx)
+        // Internet na ho to apne aap offline (device par) recogniser, agar phone mein pack hai
+        val strict = Prefs.voiceOffline(ctx) || !NetworkMonitor.isOnline(ctx)
         val strictOk = onDeviceAvailable(ctx)
         if (strict && Build.VERSION.SDK_INT >= 31 && !strictOk) {
-            cb.onError("Offline voice pack nahi mila. Phone Settings mein offline speech download karo, ya Settings mein 'Sirf offline voice' band karo.")
+            cb.onError(
+                if (Prefs.voiceOffline(ctx))
+                    "Offline voice pack nahi mila. Phone Settings mein offline speech download karo, ya Settings mein 'Sirf offline voice' band karo."
+                else
+                    "Internet nahi hai aur offline voice pack bhi nahi mila. Phone Settings mein offline speech (Hindi/English) download karo, tab tak type karke poochho."
+            )
             return
         }
         val r: SpeechRecognizer? = try {
