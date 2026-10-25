@@ -184,7 +184,7 @@ object CommandHandler {
     fun handle(context: Context, raw: String): String? {
         synchronized(handleLock) {
             val r = handleInner(context, raw)
-            if (r != null) GeminiClient.noteLocal(context, raw, r)
+            if (r != null) Brain.noteLocal(context, raw, r)
             return r
         }
     }
@@ -196,7 +196,7 @@ object CommandHandler {
 
         // Sab kuch bhulwana
         if (wordCount <= 5 && t.contains("bhool jao")) {
-            GeminiClient.clearMemory(context)
+            Brain.clearMemory(context)
             ChatStore.clear(context)
             return "Theek hai jaan, sab bhool gayi 🙈"
         }
@@ -207,7 +207,7 @@ object CommandHandler {
         // Scroll rokna
         if (wordCount <= 4 && words.any { it == "ruko" || it == "stop" || it == "bas" }) {
             scrollToken++
-            GeminiClient.requestStop()
+            Brain.requestStop()
             return "Ruk gayi 🛑"
         }
 
@@ -391,7 +391,7 @@ object CommandHandler {
             }
             if (svc.clickBest(name)) return "'" + name + "' dabaa diya! 👆"
             // Text se nahi mila (icon ya game ka button): screenshot dekh kar dhundo
-            return GeminiClient.visionTap(context, name)
+            return Brain.visionTap(context, name)
         }
 
         if (up.contains("SCROLL")) {
@@ -431,7 +431,7 @@ object CommandHandler {
         nap(300)
         petHidden(false)
         if (ok) return "Video bada kar diya 📺"
-        return GeminiClient.visionTap(context, "fullscreen (enlarge video) button")
+        return Brain.visionTap(context, "fullscreen (enlarge video) button")
     }
 
     // ---------- SMS ----------
@@ -509,7 +509,7 @@ object CommandHandler {
             }
         } else if (selfie) {
             // Camera pehle se khula hai: front/back badlo
-            GeminiClient.visionTap(
+            Brain.visionTap(
                 context, "button that switches between the front and back camera"
             )
             nap(1000)
@@ -519,7 +519,7 @@ object CommandHandler {
         if (selfie) nap(2500) else nap(600)
 
         // Shutter par asli touch (kai phone mein click action se photo nahi khichti)
-        val r = GeminiClient.visionTap(context, "round camera shutter button that takes the photo")
+        val r = Brain.visionTap(context, "round camera shutter button that takes the photo")
         if (r.contains("par tap kar diya")) {
             nap(500)
             return if (selfie) "Selfie kheench li 📸 Gallery mein dekh lena" else "Photo kheench li 📸 Gallery mein dekh lena"
