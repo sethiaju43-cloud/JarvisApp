@@ -51,6 +51,16 @@ object VoiceHelper {
         return out
     }
 
+    /** (offline awaaz, online awaaz) - online wali ko internet chahiye */
+    fun voiceStats(tts: TextToSpeech, lang: String): Pair<Int, Int> {
+        var off = 0
+        var on = 0
+        for (v in engineVoices(tts, lang)) {
+            if (v.isNetworkConnectionRequired) on++ else off++
+        }
+        return Pair(off, on)
+    }
+
     fun voiceCount(tts: TextToSpeech, lang: String = "hi"): Int {
         return engineVoices(tts, lang).size
     }
