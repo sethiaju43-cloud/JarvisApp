@@ -102,6 +102,9 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
                         SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Microphone allow karo 🎤"
                         SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
                             "Voice ke liye internet chahiye (offline pack nahi mila) 🌐"
+                        // 12 = bhasha support nahi, 13 = bhasha ka offline pack install nahi
+                        12, 13 ->
+                            "Is bhasha ka offline voice pack nahi mila 📥 Settings → Voice mein 'Offline voice pack download karo' dabao"
                         else -> "Mic mein dikkat aayi (code $error) 😕"
                     }
                 )
