@@ -73,7 +73,6 @@ object VoiceHelper {
         val idx = index(ctx)
         val lang = speakLang(ctx, text)
         var ok = false
-        // Internet na ho to wo awaaz mat chuno jo internet maangti hai (warna phone bolta hi nahi)
         val offline = !NetworkMonitor.isOnline(ctx)
         val vs = engineVoices(tts, lang).filter { !offline || !it.isNetworkConnectionRequired }
         if (vs.isNotEmpty()) {
