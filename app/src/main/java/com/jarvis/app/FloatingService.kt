@@ -75,6 +75,7 @@ class FloatingService : Service() {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var voiceWarned = false
+    private var packAsked = false
 
     // Pehla kaam chal raha hai? (agar 90 second se zyada ho to atka hua maano)
     @Volatile
@@ -486,6 +487,13 @@ class FloatingService : Service() {
                     say("Kuch sunai nahi diya jaan 🥺", 2500L)
                 } else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
                     say("Microphone allow karo 🎤", 3000L)
+                } else if (error == 12 || error == 13) {
+                    // Offline voice pack install nahi: ek baar seedha download screen khol do
+                    say("Offline voice pack chahiye 📥 Download screen khol rahi hun", 5000L)
+                    if (!packAsked) {
+                        packAsked = true
+                        handler.postDelayed({ VoicePack.openRecognitionDownload(applicationContext) }, 1500L)
+                    }
                 } else {
                     say("Mic mein dikkat aayi (code " + error + ") 😕", 3000L)
                 }
