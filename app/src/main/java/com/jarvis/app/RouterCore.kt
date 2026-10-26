@@ -102,7 +102,9 @@ object ModelRank {
         }
         if (m.contains("pro") || m.contains("opus") || m.contains("large") || m.contains("ultra")) s += 2
         if (m.contains("flash")) s += 1
-        if (m.contains("lite") || m.contains("mini") || m.contains("small") ||
+        // "gemini" ke andar bhi "mini" hota hai, isliye pehle wo hata do
+        val noGem = m.replace("gemini", "gem")
+        if (noGem.contains("lite") || noGem.contains("mini") || noGem.contains("small") ||
             m.contains("instant") || m.contains("nano") || m.contains("tiny")
         ) s -= 1
         return s.coerceAtLeast(0)
