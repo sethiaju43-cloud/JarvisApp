@@ -226,6 +226,10 @@ object ModelDownloader {
 /** Foreground service: model download background mein chalta rehta hai, notification mein progress dikhta hai */
 class ModelDownloadService : Service() {
 
+    companion object {
+        const val ACTION_CANCEL = "com.jarvis.app.CANCEL_DOWNLOAD"
+    }
+
     private val channelId = "jarvis_model_download"
     private val progressNotifId = 2
     private val doneNotifId = 3
@@ -233,6 +237,12 @@ class ModelDownloadService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Notification ke Cancel button se aaya hai
+        if (intent?.action == ACTION_CANCEL) {
+            ModelDownloader.cancel()
+            if (ModelDownloader.activeId == null) stopSelf()
+            return START_NOT_STICKY
+        }
         val modelId = intent?.getStringExtra("id") ?: ""
         val model = LocalModelCatalog.find(applicationContext, modelId)
         val title = model?.name ?: "Model"
@@ -298,6 +308,13 @@ class ModelDownloadService : Service() {
             PendingIntent.FLAG_IMMUTABLE
         )
 
+    private fun cancelIntent(): PendingIntent =
+        PendingIntent.getService(
+            this, 1,
+            Intent(this, ModelDownloadService::class.java).setAction(ACTION_CANCEL),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
     private fun buildNotification(
         title: String,
         pct: Int,
@@ -321,6 +338,7 @@ class ModelDownloadService : Service() {
             .setOnlyAlertOnce(true)
             .setProgress(100, pct, indeterminate || total <= 0)
             .setContentIntent(openAppIntent())
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancelIntent())
             .build()
     }
 
