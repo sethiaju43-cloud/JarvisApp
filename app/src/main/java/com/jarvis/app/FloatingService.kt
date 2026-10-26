@@ -451,7 +451,13 @@ class FloatingService : Service() {
 
         val lang = getSharedPreferences("jarvis", MODE_PRIVATE)
             .getString("lang", "hi-IN") ?: "hi-IN"
-        val sr = SpeechRecognizer.createSpeechRecognizer(this)
+        // Internet na ho (ya "Sirf offline voice" on ho) to phone ka offline recogniser, agar pack hai
+        val wantOffline = Prefs.voiceOffline(applicationContext) || !NetworkMonitor.isOnline(applicationContext)
+        val sr = if (wantOffline && VoiceInput.onDeviceAvailable(this)) {
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+        } else {
+            SpeechRecognizer.createSpeechRecognizer(this)
+        }
         recognizer = sr
         sr.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(b0: Bundle?) {}
@@ -506,7 +512,10 @@ class FloatingService : Service() {
             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
         )
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
-        i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, Prefs.voiceOffline(applicationContext))
+        i.putExtra(
+            RecognizerIntent.EXTRA_PREFER_OFFLINE,
+            Prefs.voiceOffline(applicationContext) || !NetworkMonitor.isOnline(applicationContext)
+        )
         sr.startListening(i)
     }
 
@@ -558,7 +567,7 @@ class FloatingService : Service() {
                 var pr: String? = null
                 try {
                     pr = Brain.answerPending(applicationContext, text)
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                 }
                 val result = pr
                 handler.post {
@@ -576,7 +585,7 @@ class FloatingService : Service() {
             var cmdReply: String? = null
             try {
                 cmdReply = CommandHandler.handle(applicationContext, text)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
             }
             val cr = cmdReply
             handler.post {
@@ -592,7 +601,9 @@ class FloatingService : Service() {
             var r = "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
             try {
                 r = Brain.askSmart(applicationContext, snapshot)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                // Error (jaise local model ki native library) bhi pakdo, warna jawab kabhi nahi aata
+                r = "Kuch dikkat aa gayi jaan 🥺 (" + e.javaClass.simpleName + ") Dobara bolo"
             }
             val finalReply = r
             handler.post {
