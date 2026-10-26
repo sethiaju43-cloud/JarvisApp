@@ -94,6 +94,12 @@ class SettingsActivity : ScreenActivity() {
         voiceInfo = info
         container.addView(info)
         container.addView(UiKit.text(c, VoiceInput.capabilityText(c), 12f, dim = true))
+        container.addView(UiKit.button(c, "📥 Offline voice pack (sunne ke liye) download karo") {
+            UiKit.toast(c, VoicePack.openRecognitionDownload(c))
+        })
+        container.addView(UiKit.button(c, "🔊 Offline awaaz (bolne ke liye) download karo") {
+            UiKit.toast(c, VoicePack.openTtsData(c))
+        })
         container.addView(UiKit.switchRow(c, "Jawab bolkar sunao (chat mein)", Prefs.speakReplies(c)) { Prefs.setBool(c, "speak_replies", it) })
         container.addView(UiKit.switchRow(c, "Bolne ke baad seedha bhej do (warna pehle text dikhega)", Prefs.voiceAutoSend(c)) { Prefs.setBool(c, "voice_autosend", it) })
         container.addView(UiKit.switchRow(c, "Sirf offline voice (device par, internet nahi)", Prefs.voiceOffline(c)) { Prefs.setBool(c, "voice_offline", it) })
