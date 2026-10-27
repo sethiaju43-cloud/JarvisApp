@@ -22,6 +22,7 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
     }
 
     private var sr: SpeechRecognizer? = null
+    private var vosk: OfflineVoice? = null
 
     var listening = false
         private set
@@ -37,6 +38,9 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
 
         /** Settings mein dikhane ke liye: voice input online hai ya offline */
         fun capabilityText(ctx: Context): String {
+            if (VoskModels.isInstalled(ctx, VoskModels.hi)) {
+                return "Voice input: 🟢 offline Hindi + English mic taiyaar (internet na ho tab apne aap chalega)."
+            }
             if (!SpeechRecognizer.isRecognitionAvailable(ctx)) {
                 return "Voice input: is phone mein speech service nahi mili."
             }
@@ -48,8 +52,42 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
         }
     }
 
+    private fun startVosk() {
+        val v = OfflineVoice(ctx, object : Callback {
+            override fun onPartial(text: String) {
+                cb.onPartial(text)
+            }
+
+            override fun onFinal(text: String) {
+                listening = false
+                vosk = null
+                cb.onState(false)
+                cb.onFinal(text)
+            }
+
+            override fun onError(msg: String) {
+                listening = false
+                vosk = null
+                cb.onState(false)
+                cb.onError(msg)
+            }
+
+            override fun onState(listening: Boolean) {}
+        })
+        vosk = v
+        listening = true
+        cb.onState(true)
+        v.start()
+    }
+
     fun start() {
         if (listening) return
+        // Internet na ho (ya "Sirf offline voice" on ho) aur offline Hindi+English mic installed ho
+        val offlineNow = Prefs.voiceOffline(ctx) || !NetworkMonitor.isOnline(ctx)
+        if (offlineNow && VoskModels.isInstalled(ctx, VoskModels.hi)) {
+            startVosk()
+            return
+        }
         // Internet na ho to apne aap offline (device par) recogniser, agar phone mein pack hai
         val strict = Prefs.voiceOffline(ctx) || !NetworkMonitor.isOnline(ctx)
         val strictOk = onDeviceAvailable(ctx)
@@ -139,6 +177,7 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
 
     /** Bolna band karo aur jo suna wo de do */
     fun stop() {
+        vosk?.stop()
         try {
             sr?.stopListening()
         } catch (e: Exception) {
@@ -147,10 +186,14 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
 
     fun cancel() {
         if (!listening) return
+        vosk?.cancel()
+        vosk = null
         finish()
     }
 
     fun destroy() {
+        vosk?.cancel()
+        vosk = null
         listening = false
         try {
             sr?.destroy()
