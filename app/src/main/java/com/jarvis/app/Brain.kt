@@ -42,6 +42,13 @@ object Brain {
     @Volatile
     var lastRoute: RouteResult? = null
 
+    /**
+     * Pichla jawab AI ki dikkat/error ka message tha (asli jawab nahi)?
+     * UI isse dekhkar error ko bolkar nahi sunati aur use yaaddasht mein nahi daalti.
+     */
+    @Volatile
+    var lastReplyWasError = false
+
     // ---------- Chhoti yaaddasht (abhi ki baat-cheet, encrypted) ----------
     private val memory = ArrayList<Pair<String, String>>()
     private var memLoaded = false
@@ -75,15 +82,16 @@ object Brain {
     }
 
     private fun trimMemory() {
-        while (memory.size > 30) memory.removeAt(0)
+        while (memory.size > 40) memory.removeAt(0)
         while (memory.isNotEmpty() && memory[0].first != "user") memory.removeAt(0)
     }
 
     @Synchronized
     fun noteLocal(ctx: Context, user: String, reply: String) {
         loadMemory(ctx)
-        memory.add(Pair("user", user.take(500)))
-        memory.add(Pair("model", reply.take(500)))
+        // Lamba jawab beech se na kate, warna "tumne galat kyon bataya" ka jawab dena mushkil ho jata hai
+        memory.add(Pair("user", user.take(800)))
+        memory.add(Pair("model", reply.take(1500)))
         trimMemory()
         saveMemory(ctx)
     }
@@ -438,6 +446,7 @@ object Brain {
     /** Phone ke commands, search, screen padhna, likhna, call, alarm, yaaddasht aur kai-step kaam */
     fun askSmart(context: Context, history: List<Pair<String, String>>): String {
         stopFlag = false
+        lastReplyWasError = false
         running = true
         try {
             val r = askSmartInner(context, history)
@@ -536,9 +545,21 @@ object Brain {
         val multi = CommandHandler.hasMultiTask(userText)
         var task = TaskClassifier.classify(userText, false)
         if (screenRelated || multi) task = Task.PHONE
-        val needSearch = wantSearch && task != Task.PHONE
+        // User bole "galat tha": pichla sawaal-jawab saath dekar usi ek call mein dobara jaanchne ko kaho
+        var correctionPrev: Honesty.Exchange? = null
+        if (mem.isNotEmpty() && Honesty.isUserCorrection(userText)) {
+            correctionPrev = Honesty.lastExchange(mem)
+            extra += Honesty.correctionRequest(correctionPrev)
+        }
 
-        if (mem.isNotEmpty() && Honesty.isUserCorrection(userText)) extra += Prompts.CORRECTION_HINT
+        var needSearch = wantSearch && task != Task.PHONE
+        var searchQ = userText
+        // Tathya (fact) wale sawaal par user ne galat kaha to taaza search se jaanch (extra call nahi, usi call mein)
+        val cp = correctionPrev
+        if (cp != null && task != Task.PHONE && !screenRelated && !multi && TaskClassifier.looksFactual(cp.user)) {
+            needSearch = true
+            searchQ = cp.user.take(200)
+        }
 
         val apps = CommandHandler.installedApps(context)
         val names = StringBuilder()
@@ -556,8 +577,11 @@ object Brain {
         val base = ArrayList<Pair<String, String>>(mem)
         base.add(Pair("user", userText + extra + (if (multi) Prompts.MULTI_HINT else "")))
 
-        val first = askWith(context, mergeSame(base), task, sysOnline, sysLocal, needSearch, imageB64, userText)
-        if (!first.ok) return first.text
+        val first = askWith(context, mergeSame(base), task, sysOnline, sysLocal, needSearch, imageB64, searchQ)
+        if (!first.ok) {
+            lastReplyWasError = true
+            return first.text
+        }
         var cur = harvest(context, first.text)
         cur = ensureFormat(context, mergeSame(base), sysOnline, sysLocal, cur)
         cur = harvest(context, cur)
@@ -650,7 +674,10 @@ object Brain {
             finalText = "Ho gaya ✅ $finalText"
         }
 
-        if (failed) return finalText
+        if (failed) {
+            lastReplyWasError = true
+            return finalText
+        }
         noteLocal(context, userText, finalText)
 
         // Sirf baat-cheet wale jawab par self-check, notice aur sources
@@ -717,13 +744,17 @@ object Brain {
     /** Photo (gallery/camera) ke saath sawaal: online vision model se */
     fun askWithImage(context: Context, userText: String, b64: String): String {
         stopFlag = false
+        lastReplyWasError = false
         running = true
         try {
             val q = userText.ifBlank { "Is photo mein kya hai? Saaf aur chhote mein batao." }
             val timeLine = ""
             val sys = Prompts.chatOnly(context, Task.VISION, timeLine, MemoryStore.contextLine(context, q))
             val rep = askWith(context, listOf(Pair("user", q)), Task.VISION, sys, sys, false, b64, "")
-            if (!rep.ok) return rep.text
+            if (!rep.ok) {
+                lastReplyWasError = true
+                return rep.text
+            }
             noteLocal(context, "[photo] $q", rep.text)
             return Honesty.cleanMarkdown(rep.text)
         } finally {
@@ -734,6 +765,7 @@ object Brain {
     /** User ki chuni hui text file par kaam (summary, rewrite...). File ka text untrusted maana jata hai. */
     fun askAboutFile(context: Context, userText: String, fileName: String, fileText: String): String {
         stopFlag = false
+        lastReplyWasError = false
         running = true
         try {
             val q = userText.ifBlank { "Is file ka chhota saar do." }
@@ -744,7 +776,10 @@ object Brain {
             val sysOn = Prompts.chatOnly(context, task, "", MemoryStore.contextLine(context, q))
             val sysLoc = Prompts.local(context, task, "", "")
             val rep = askWith(context, listOf(Pair("user", msg)), task, sysOn, sysLoc, false, null, "")
-            if (!rep.ok) return rep.text
+            if (!rep.ok) {
+                lastReplyWasError = true
+                return rep.text
+            }
             noteLocal(context, "[file: $fileName] $q", rep.text)
             val sb = StringBuilder(Honesty.cleanMarkdown(rep.text))
             val local = lastRoute?.backend?.isLocal == true
