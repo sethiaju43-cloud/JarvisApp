@@ -23,6 +23,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -363,16 +364,13 @@ class FloatingService : Service() {
     // ---------- Bolna ----------
     /** Emoji aur symbols hata do taaki awaaz mein "heart eyes" jaisa na bole */
     private fun speakable(s0: String): String {
-        val s = Honesty.forSpeech(s0)
-        var t = s.replace(Regex("[\\p{So}\\p{Cn}\\uFE0F\\u200D]"), " ")
-        t = t.replace("*", "").replace("#", "").replace("_", " ")
-        t = t.replace(Regex("\\s+"), " ").trim()
+        var t = Honesty.spokenText(s0)
         if (t.isEmpty()) t = "Ji"
         return t.take(3500)
     }
 
     /** Bubble mein dikhao aur bolkar bhi sunao */
-    private fun speakOut(text: String) {
+    private fun speakOut(text: String, spoken: String? = null) {
         say(text, 2500L + text.length * 70L)
         val t = tts
         if (t != null && ttsReady) {
@@ -385,18 +383,18 @@ class FloatingService : Service() {
                     Toast.LENGTH_LONG
                 ).show()
             }
-            t.speak(speakable(text), TextToSpeech.QUEUE_FLUSH, null, "jarvi")
+            t.speak(speakable(spoken ?: text), TextToSpeech.QUEUE_FLUSH, null, "jarvi")
         } else {
             pet?.talk(2500)
         }
     }
 
     /** User ki baat ka jawab */
-    private fun reply(text: String) {
+    private fun reply(text: String, spoken: String? = null) {
         working = false
         lastTouch = System.currentTimeMillis()
         ChatStore.append(applicationContext, text, false)
-        speakOut(text)
+        speakOut(text, spoken)
     }
 
     private fun stopSpeaking() {
@@ -616,6 +614,7 @@ class FloatingService : Service() {
                 try {
                     pr = Brain.answerPending(applicationContext, text)
                 } catch (e: Throwable) {
+                    Log.e("JarviFloat", "answerPending failed: " + e.javaClass.simpleName)
                 }
                 val result = pr
                 handler.post {
@@ -634,6 +633,7 @@ class FloatingService : Service() {
             try {
                 cmdReply = CommandHandler.handle(applicationContext, text)
             } catch (e: Throwable) {
+                Log.e("JarviFloat", "command failed: " + e.javaClass.simpleName)
             }
             val cr = cmdReply
             handler.post {
@@ -647,19 +647,26 @@ class FloatingService : Service() {
         val snapshot = listOf(Pair("user", text))
         Thread {
             var r = "Kuch dikkat aa gayi jaan 🥺 Dobara bolo"
+            var wasErr = false
+            Brain.lastReplyWasError = false
             try {
                 r = Brain.askSmart(applicationContext, snapshot)
+                wasErr = Brain.lastReplyWasError
             } catch (e: Throwable) {
-                // Error (jaise local model ki native library) bhi pakdo, warna jawab kabhi nahi aata
-                r = "Kuch dikkat aa gayi jaan 🥺 (" + e.javaClass.simpleName + ") Dobara bolo"
+                // Error (jaise local model ki native library) bhi pakdo, warna jawab kabhi nahi aata.
+                // Class ka naam sirf log mein, user ko ya awaaz mein technical text nahi.
+                wasErr = true
+                Log.e("JarviFloat", "askSmart failed: " + e.javaClass.simpleName + " " + OnlineParsers.redact(e.message ?: ""))
             }
             val finalReply = r
+            val errNow = wasErr
             handler.post {
-                // "Bhejun?" poochha hai to bolne ke baad khud sun lo (Haan/Nahi ke liye)
-                if (Brain.hasPending()) {
+                // "Bhejun?" poochha hai (Haan/Nahi) ya Baat-cheet mode ON hai to bolne ke baad khud sun lo
+                val chatMode = Prefs.bool(applicationContext, "voice_chat_mode", false)
+                if (Brain.hasPending() || (chatMode && !errNow)) {
                     wantListenAfter = (tts != null && ttsReady)
                 }
-                reply(finalReply)
+                reply(finalReply, if (errNow) Honesty.SPOKEN_ERROR else null)
             }
         }.start()
     }
