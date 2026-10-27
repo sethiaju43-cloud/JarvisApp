@@ -72,6 +72,7 @@ class FloatingService : Service() {
     private var accWarnAt = 0L
 
     private var recognizer: SpeechRecognizer? = null
+    private var vosk: OfflineVoice? = null
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var voiceWarned = false
@@ -441,6 +442,12 @@ class FloatingService : Service() {
             say("Pehle Permissions mein Microphone allow karo 🎤", 3500L)
             return
         }
+        // Internet na ho (ya "Sirf offline voice" on ho) aur offline Hindi+English mic installed ho
+        val offlineNow = Prefs.voiceOffline(applicationContext) || !NetworkMonitor.isOnline(applicationContext)
+        if (offlineNow && VoskModels.isInstalled(applicationContext, VoskModels.hi)) {
+            startVosk(auto)
+            return
+        }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             say("Is phone mein voice sunne ki service nahi mili 😕", 3500L)
             return
@@ -527,9 +534,42 @@ class FloatingService : Service() {
         sr.startListening(i)
     }
 
+    /** Bina internet ke Hindi + English sunna (Vosk) */
+    private fun startVosk(auto: Boolean) {
+        listening = true
+        autoMode = auto
+        say("Bolo jaan... 🎤", 10000L)
+        pet?.think(30000)
+        val v = OfflineVoice(applicationContext, object : VoiceInput.Callback {
+            override fun onPartial(text: String) {}
+
+            override fun onFinal(text: String) {
+                listening = false
+                autoMode = false
+                vosk = null
+                handleSpoken(text)
+            }
+
+            override fun onError(msg: String) {
+                listening = false
+                val wasAuto = autoMode
+                autoMode = false
+                vosk = null
+                calm()
+                if (wasAuto) hideBubbleNow() else say(msg, 3000L)
+            }
+
+            override fun onState(listening: Boolean) {}
+        })
+        vosk = v
+        v.start()
+    }
+
     private fun cancelListening() {
         listening = false
         autoMode = false
+        vosk?.cancel()
+        vosk = null
         destroyRecognizer()
         calm()
         hideBubbleNow()
@@ -762,6 +802,8 @@ class FloatingService : Service() {
         instance = null
         handler.removeCallbacksAndMessages(null)
         walkAnim?.cancel()
+        vosk?.cancel()
+        vosk = null
         try {
             recognizer?.destroy()
         } catch (e: Exception) {
