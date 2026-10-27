@@ -64,3 +64,15 @@ route planner, router core (retry/fallback/cooldown), API parsers, model-fit. Ph
 
 Chat, memory, keys encrypted (Android Keystore). Screen text AI ko bhejna Settings → Privacy se band kar sakte ho. Settings → "Saara local data mitao".
 Docs: `docs/BACKEND_PROXY.md` (production mein keys server par).
+
+## Repair notes (audit ke baad badlav)
+
+Ye badlav bhi **build/test nahi kiye gaye** (is audit ke waqt Gradle/Kotlin compiler available nahi tha). Pehle Actions green karo, phir phone par test karo.
+
+- **Galti sudhaar:** jab user "galat" jaisa kuch bole, Jarvi ko pichla sawaal aur pichla jawab saath diya jata hai (usi ek AI call mein, extra call nahi). Tathya wale sawaal par online search se jaanch hoti hai. (`Brain.kt`, `SelfCheck.kt`, `Prompts.kt`)
+- **Yaaddasht:** chhoti yaaddasht mein jawab ab 1500 akshar tak (pehle 500), 40 entries tak. (`Brain.kt`)
+- **Awaaz:** pitch/rate ka farak bahut halka kiya (chipmunk jaisa nahi), behtar quality wali awaaz pehle, link/emoji/symbols bolne se hataye, error bolkar nahi sunaya jata. Android TTS mein awaaz ka gender poochhne ka tareeka nahi hai, isliye Awaaz 1-6 mein se test karke chuno. (`VoiceHelper.kt`, `SelfCheck.kt`)
+- **Baat-cheet mode (hands-free):** Chat menu → "Baat-cheet mode". Jarvi bolne ke baad apne aap sunti hai (chat screen aur floating Jarvi dono par). Ye "sun → samajh → bol → phir sun" ka chakkar hai, asli real-time voice (beech mein tokna) nahi. (`ChatActivity.kt`, `FloatingService.kt`)
+- **Errors:** technical error user ko ya awaaz mein nahi dikhta; developer ke liye `Log` mein (key chhupakar). (`ModelRouter.kt`, `ChatActivity.kt`, `FloatingService.kt`)
+- **Build:** bekaar `kotlinx-coroutines-android` dependency hataai (code mein kahin use nahi hoti).
+- **Optional safai:** `GeminiClient.kt`, `FactsActivity.kt` aur `res/layout/activity_facts.xml` purane/bekaar hain (manifest mein nahi, kahin se khulte nahi). Chaho to teeno delete kar do.
