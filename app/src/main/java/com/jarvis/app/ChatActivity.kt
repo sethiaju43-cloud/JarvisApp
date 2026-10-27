@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.PopupMenu
@@ -29,7 +30,13 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var voiceWarned = false
+    private var ttsFailed = false
     private var voice: VoiceInput? = null
+
+    // Baat-cheet (hands-free) mode: Jarvi bolna khatam kare to apne aap sunna shuru
+    private var autoListening = false
+    private var screenResumed = false
+    private var autoListenRunnable: Runnable? = null
     private var netCb: ConnectivityManager.NetworkCallback? = null
 
     // Kitne jawab abhi aane baaki hain ("..." dikh raha hai)
@@ -93,7 +100,8 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             override fun onFinal(text: String) {
                 b.etInput.setText(text)
                 b.etInput.setSelection(text.length)
-                if (Prefs.voiceAutoSend(this@ChatActivity)) {
+                autoListening = false
+                if (Prefs.voiceAutoSend(this@ChatActivity) || chatModeOn()) {
                     sendFromInput()
                 } else {
                     showHint("✏️ Jo suna wo upar likha hai. Theek ho to ➤ dabao, ya badal lo.")
@@ -101,8 +109,14 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
 
             override fun onError(msg: String) {
-                Toast.makeText(this@ChatActivity, msg, Toast.LENGTH_LONG).show()
-                showHint(null)
+                if (autoListening) {
+                    // Apne aap shuru hui sunai mein kuch nahi mila: chupchaap ruk jao (loop nahi chalega)
+                    autoListening = false
+                    showHint("🗣 Kuch sunai nahi diya, baat-cheet ruk gayi. Mic dabakar dobara shuru karo.")
+                } else {
+                    Toast.makeText(this@ChatActivity, msg, Toast.LENGTH_LONG).show()
+                    showHint(null)
+                }
             }
 
             override fun onState(listening: Boolean) {
@@ -119,8 +133,19 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onResume() {
         super.onResume()
+        screenResumed = true
         if (inFlight == 0) reloadFromStore()
         refreshStatus()
+    }
+
+    override fun onPause() {
+        screenResumed = false
+        // Screen se jaate hi mic aur bolna band, taaki peeche se sunna/bolna na chalta rahe
+        cancelAutoListen()
+        autoListening = false
+        if (voice?.listening == true) voice?.cancel()
+        tts?.stop()
+        super.onPause()
     }
 
     private fun refreshStatus() {
@@ -166,7 +191,10 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     }
 
                     override fun onDone(utteranceId: String?) {
-                        runOnUiThread { b.btnStopSpeak.visibility = View.GONE }
+                        runOnUiThread {
+                            b.btnStopSpeak.visibility = View.GONE
+                            afterSpeech()
+                        }
                     }
 
                     @Deprecated("Deprecated in Java")
@@ -180,6 +208,61 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 })
             }
             ttsReady = true
+        } else {
+            ttsReady = false
+            ttsFailed = true
+            showHint("🔇 Is phone mein bolne wala engine (Text-to-speech) nahi chal raha. Jawab sirf likha hua milega.")
+        }
+    }
+
+    // ---------------- Baat-cheet (hands-free) mode ----------------
+    private fun chatModeOn(): Boolean = Prefs.bool(this, "voice_chat_mode", false)
+
+    private fun cancelAutoListen() {
+        val r = autoListenRunnable
+        if (r != null) b.root.removeCallbacks(r)
+        autoListenRunnable = null
+    }
+
+    /** Jarvi ne bolna khatam kiya (ya bolne ko kuch nahi tha): mode ON ho to thodi der baad sunna shuru */
+    private fun afterSpeech() {
+        if (!chatModeOn() || !screenResumed || inFlight > 0 || isFinishing || isDestroyed) return
+        cancelAutoListen()
+        val r = Runnable {
+            autoListenRunnable = null
+            startAutoListen()
+        }
+        autoListenRunnable = r
+        // Thoda ruko taaki mic Jarvi ki apni awaaz na pakde
+        b.root.postDelayed(r, 600L)
+    }
+
+    private fun startAutoListen() {
+        val v = voice ?: return
+        if (v.listening || inFlight > 0 || !screenResumed) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            showHint("🎤 Baat-cheet mode ke liye Microphone allow karo (mic button dabao).")
+            return
+        }
+        autoListening = true
+        v.start()
+    }
+
+    private fun toggleChatMode() {
+        val now = !chatModeOn()
+        Prefs.setBool(this, "voice_chat_mode", now)
+        if (now) {
+            Toast.makeText(
+                this,
+                "🗣 Baat-cheet mode ON: Jarvi bolne ke baad apne aap sunegi (floating Jarvi par bhi). " +
+                    "Ye 'sun → samajh → bol → phir sun' ka chakkar hai.",
+                Toast.LENGTH_LONG
+            ).show()
+            if (voice?.listening != true && inFlight == 0) onMicClicked()
+        } else {
+            cancelAutoListen()
+            autoListening = false
+            Toast.makeText(this, "Baat-cheet mode OFF", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -198,6 +281,8 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun startVoice() {
+        cancelAutoListen()
+        autoListening = false
         tts?.stop()
         voice?.start()
     }
@@ -319,10 +404,16 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         Thread {
             var r: String? = null
+            var crashed = false
+            Brain.lastReplyWasError = false
             try {
                 r = work(text, image, file)
             } catch (e: Throwable) {
+                // Chupchaap nigalna nahi: developer ke liye log (key/token chhupakar), user ko saaf message
+                crashed = true
+                Log.e("JarviChat", "work failed: " + e.javaClass.simpleName + " " + OnlineParsers.redact(e.message ?: ""))
             }
+            val wasErr = crashed || Brain.lastReplyWasError
             val reply = r ?: "Kuch dikkat aa gayi 🥺 Dobara bolo"
             ChatStore.append(applicationContext, reply, false)
             ModelRouter.onStatus = null
@@ -344,7 +435,8 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     adapter.notifyDataSetChanged()
                     speak(reply)
                 } else {
-                    fillPlaceholder(reply)
+                    // Error ka message bolkar nahi sunate (technical lagta hai), uski jagah chhoti saaf line bolte hain
+                    fillPlaceholder(reply, true, if (wasErr) Honesty.SPOKEN_ERROR else null)
                 }
                 refreshStatus()
                 checkPendingMemory()
@@ -365,6 +457,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             try {
                 res = FreshMind.run(applicationContext)
             } catch (e: Throwable) {
+                Log.e("JarviChat", "FreshMind failed: " + e.javaClass.simpleName + " " + OnlineParsers.redact(e.message ?: ""))
             }
             val text = res?.text ?: "Fresh Mind mein dikkat aa gayi 🥺"
             ModelRouter.onStatus = null
@@ -397,6 +490,10 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         pm.menu.add(0, 5, 4, "📝 Memory")
         pm.menu.add(0, 6, 5, "⚙️ Settings")
         pm.menu.add(0, 7, 6, "🗑 Chat saaf karo")
+        pm.menu.add(
+            0, 8, 7,
+            if (chatModeOn()) "🗣 Baat-cheet mode: ON (band karo)" else "🗣 Baat-cheet mode: OFF (hands-free shuru karo)"
+        )
         pm.setOnMenuItemClickListener { mi ->
             when (mi.itemId) {
                 1 -> newChat()
@@ -412,6 +509,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         reloadFromStore()
                     }
                 }
+                8 -> toggleChatMode()
             }
             true
         }
@@ -483,7 +581,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         b.rv.scrollToPosition(messages.size - 1)
     }
 
-    private fun fillPlaceholder(text: String, speakIt: Boolean = true) {
+    private fun fillPlaceholder(text: String, speakIt: Boolean = true, spoken: String? = null) {
         val p = curPh ?: return
         val idx = messages.indexOfFirst { it === p }
         curPh = null
@@ -491,26 +589,32 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         messages[idx] = ChatMessage(text, false)
         adapter.notifyItemChanged(idx)
         b.rv.scrollToPosition(messages.size - 1)
-        if (speakIt) speak(text)
-    }
-
-    private fun speak(text: String) {
-        if (!Prefs.speakReplies(this)) return
-        val t = tts
-        if (t != null && ttsReady) {
-            var s = Honesty.forSpeech(text).replace(Regex("[\\p{So}\\p{Cn}\\uFE0F\\u200D]"), " ")
-            s = s.replace("*", "").replace("#", "").replace(Regex("\\s+"), " ").trim()
-            if (s.isEmpty()) return
-            val okVoice = VoiceHelper.apply(this, t, s)
-            if (!okVoice && !voiceWarned && VoiceHelper.speakLang(this, s) == "en") {
-                voiceWarned = true
-                Toast.makeText(this, "English awaaz nahi mili. Phone Settings mein Text-to-speech se download kar lo", Toast.LENGTH_LONG).show()
-            }
-            t.speak(s.take(3500), TextToSpeech.QUEUE_FLUSH, null, "jarvis")
+        if (speakIt) {
+            val spoke = speak(spoken ?: text)
+            // Bola nahi (setting band / engine nahi): baat-cheet mode mein seedha sunna shuru
+            if (!spoke) afterSpeech()
         }
     }
 
+    /** true = bolna shuru hua. false = kuch bola nahi (setting band, engine nahi, ya bolne layak text nahi) */
+    private fun speak(text: String): Boolean {
+        if (!Prefs.speakReplies(this)) return false
+        val t = tts
+        if (t == null || !ttsReady || ttsFailed) return false
+        val s = Honesty.spokenText(text)
+        if (s.isEmpty()) return false
+        val okVoice = VoiceHelper.apply(this, t, s)
+        if (!okVoice && !voiceWarned && VoiceHelper.speakLang(this, s) == "en") {
+            voiceWarned = true
+            Toast.makeText(this, "English awaaz nahi mili. Phone Settings mein Text-to-speech se download kar lo", Toast.LENGTH_LONG).show()
+        }
+        val rc = t.speak(s.take(3500), TextToSpeech.QUEUE_FLUSH, null, "jarvis")
+        return rc == TextToSpeech.SUCCESS
+    }
+
     override fun onDestroy() {
+        cancelAutoListen()
+        autoListening = false
         NetworkMonitor.unregister(this, netCb)
         voice?.destroy()
         ModelRouter.onStatus = null
