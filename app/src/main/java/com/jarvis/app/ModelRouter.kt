@@ -1,6 +1,7 @@
 package com.jarvis.app
 
 import android.content.Context
+import android.util.Log
 
 /** Local model ko router ke liye backend banata hai */
 class LocalBackend(private val ctx: Context, private val m: LocalModel) : Backend {
@@ -103,12 +104,29 @@ object ModelRouter {
                 if (res.notes.isNotEmpty()) res.notes.joinToString(". ") + ". Thodi der baad try karo."
                 else "Jawab nahi aaya."
             }
-            else -> "AI se jawab nahi aaya: " + res.failMsg.take(140)
+            ErrKind.SERVER -> "AI provider ka server abhi dikkat mein hai 😕 Thodi der baad dobara try karo."
+            ErrKind.EMPTY -> "Model ne khali jawab diya 😕 Apna sawaal dobara poochho."
+            else -> friendlyOther(res.failMsg)
         }
+        // Developer ke liye asli wajah (key/token chhupakar), user ko technical text nahi dikhta
+        Log.w("JarviRouter", "fail kind=" + res.failKind + " tried=" + res.failedBefore + " msg=" +
+            OnlineParsers.redact(res.failMsg).take(200))
         return RouteResult(
             false, "", null, res.failedBefore, res.failKind, msg,
             emptyList(), false, "", res.notes
         )
+    }
+
+    /**
+     * Local model ke error Hinglish mein aur kaam ke hote hain (RAM, download, load), unhe dikhao.
+     * Online provider ka angrezi/technical error user ko mat dikhao, bolkar bhi nahi sunana.
+     */
+    private fun friendlyOther(raw: String): String {
+        val m = raw.trim()
+        val localStyle = m.startsWith("Local model") || m.startsWith("Model") ||
+            m.startsWith("RAM") || m.startsWith("Memory")
+        return if (localStyle && m.isNotEmpty()) m.take(160)
+        else "AI se abhi jawab nahi mil paya 😕 Thodi der baad dobara try karo. Baar baar aaye to Online AI providers mein 'Check' dabao."
     }
 
     /** Header mein dikhane ke liye: abhi kaun sa model chalega */
