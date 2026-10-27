@@ -228,7 +228,9 @@ object Honesty {
 
     private val correctionWords = listOf(
         "galat", "ghalat", "wrong", "incorrect", "not correct", "sahi nahi", "sahi nahin",
-        "galti", "mistake", "not right", "गलत", "ग़लत", "सही नहीं", "गलती"
+        "galti", "mistake", "not right", "गलत", "ग़लत", "सही नहीं", "गलती",
+        "jhooth", "jhuth", "झूठ", "not true", "that's not", "thats not",
+        "aisa nahi hai", "aisa nahin hai", "ऐसा नहीं है", "nahi nahi", "nahin nahin"
     )
 
     /** User bol raha hai ki pichla jawab galat tha? */
@@ -237,4 +239,57 @@ object Honesty {
         val low = text.lowercase()
         return correctionWords.any { low.contains(it) }
     }
+
+    /** Pichli ek baat-cheet: user ka sawaal aur Jarvi ka jawab */
+    class Exchange(val user: String, val answer: String)
+
+    /** history (user/model, text) mein se sabse nayi sawaal-jawab jodi nikaalo, na mile to null */
+    fun lastExchange(history: List<Pair<String, String>>): Exchange? {
+        var i = history.size - 1
+        while (i >= 0 && history[i].first != "model") i--
+        if (i < 0) return null
+        var j = i - 1
+        while (j >= 0 && history[j].first != "user") j--
+        if (j < 0) return null
+        return Exchange(history[j].second, history[i].second)
+    }
+
+    /**
+     * User ke "galat" kehne par model ko di jaane wali hidayat (ek hi AI call mein, doosra call nahi).
+     * Pichla sawaal aur jawab saath mein diya jata hai taaki model ko andaaza na lagana pade.
+     */
+    fun correctionRequest(ex: Exchange?): String {
+        val sb = StringBuilder("\n\n[NOTE: User tumhare pichle jawab par sawaal utha raha hai.")
+        if (ex != null) {
+            sb.append(" Pichla sawaal: \"").append(ex.user.take(500)).append("\".")
+            sb.append(" Tumhara pichla jawab: \"").append(ex.answer.take(900)).append("\".")
+        }
+        sb.append(" Karna ye hai: (1) Pehle pichla jawab sach mein dobara jaancho (tathya, calculation, matlab). ")
+        sb.append("(2) Agar galti thi: ek baar saaf maano, batao kya galat tha aur kyun, phir sahi jawab do. ")
+        sb.append("(3) Agar jawab sahi tha: pyaar se wajah ke saath samjhao; sirf user ke kehne par 'haan galti thi' mat bolo. ")
+        sb.append("(4) Agar samajh nahi aa raha ki user kaun sa hissa galat keh raha hai, ya tumhe khud pakka nahi pata: ")
+        sb.append("ek chhota sawaal poochho ya saaf bolo ki pakka nahi pata, koi tathya gadho mat. ")
+        sb.append("(5) Baar baar maafi mat maango.]")
+        return sb.toString()
+    }
+
+    /**
+     * Bolne ke liye text: notice/sources/code hatao, emoji aur symbols hatao,
+     * web link ko sirf 'link' bolo, nayi line par thoda ruko.
+     * Khali string lautaye to bolne ko kuch nahi hai.
+     */
+    fun spokenText(text: String): String {
+        var t = forSpeech(text)
+        t = t.replace(Regex("https?://\\S+"), " link ")
+        t = t.replace(Regex("[\\p{So}\\p{Cn}\\uFE0F\\u200D]"), " ")
+        t = t.replace("*", "").replace("#", "").replace("_", " ")
+        t = t.replace(Regex("(?m)^[ \\t]*[\u2022\\-][ \\t]+"), "")
+        t = t.replace(Regex("([.!?\u0964,:;])[ \\t]*\\n+[ \\t]*"), "$1 ")
+        t = t.replace(Regex("[ \\t]*\\n+[ \\t]*"), ". ")
+        t = t.replace(Regex("\\s+"), " ").trim()
+        return t
+    }
+
+    /** Jawab sirf galti/dikkat ka ho to bolne ke liye chhoti, aam bhasha wali line (technical text nahi) */
+    const val SPOKEN_ERROR = "Abhi jawab nahi mil paya. Thodi der baad dobara bolo."
 }
