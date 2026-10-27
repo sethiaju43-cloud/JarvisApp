@@ -55,7 +55,10 @@
 
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".PermissionsActivity" android:exported="false" />
-        <activity android:name=".ChatActivity" android:exported="false" />
+        <activity
+            android:name=".ChatActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
+            android:exported="false" />
         <activity android:name=".MemoryActivity" android:exported="false" />
         <activity android:name=".HistoryActivity" android:exported="false" />
         <activity android:name=".ModelsActivity" android:exported="false" />
