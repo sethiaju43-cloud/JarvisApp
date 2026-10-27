@@ -100,6 +100,24 @@ class SettingsActivity : ScreenActivity() {
         container.addView(UiKit.button(c, "🔊 Offline awaaz (bolne ke liye) download karo") {
             UiKit.toast(c, VoicePack.openTtsData(c))
         })
+        val vosk = UiKit.text(c, VoskModels.statusText(c), 12f, dim = true)
+        container.addView(vosk)
+        container.addView(UiKit.button(c, "🎙 Offline Hindi + English mic download karo (~80 MB)") {
+            if (VoskModels.busy) {
+                UiKit.toast(c, "Download pehle se chal raha hai")
+            } else {
+                vosk.text = "Shuru ho raha hai..."
+                Thread {
+                    val err = VoskModels.installAll(applicationContext) { msg ->
+                        runOnUiThread { vosk.text = msg }
+                    }
+                    runOnUiThread {
+                        vosk.text = VoskModels.statusText(c)
+                        UiKit.toast(c, err ?: "Offline Hindi + English mic taiyaar ✅")
+                    }
+                }.start()
+            }
+        })
         container.addView(UiKit.switchRow(c, "Jawab bolkar sunao (chat mein)", Prefs.speakReplies(c)) { Prefs.setBool(c, "speak_replies", it) })
         container.addView(UiKit.switchRow(c, "Bolne ke baad seedha bhej do (warna pehle text dikhega)", Prefs.voiceAutoSend(c)) { Prefs.setBool(c, "voice_autosend", it) })
         container.addView(UiKit.switchRow(c, "Sirf offline voice (device par, internet nahi)", Prefs.voiceOffline(c)) { Prefs.setBool(c, "voice_offline", it) })
