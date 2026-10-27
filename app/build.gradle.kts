@@ -66,7 +66,6 @@ dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
     // Offline Hindi + English mic (Vosk)
     implementation("com.alphacephei:vosk-android:0.3.75")
