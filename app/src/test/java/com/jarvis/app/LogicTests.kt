@@ -63,6 +63,42 @@ class HonestyTest {
         assertFalse(Honesty.isUserCorrection("aaj mausam kaisa hai"))
     }
 
+    @Test fun correctionDetectedMoreWays() {
+        assertTrue(Honesty.isUserCorrection("Jarvi, tumne mujhe galat jawab kyon diya?"))
+        assertTrue(Honesty.isUserCorrection("nahi nahi, aisa nahi hai"))
+        assertFalse(Honesty.isUserCorrection("kal subah 6 baje alarm laga do"))
+        // lamba message correction nahi maana jata
+        assertFalse(Honesty.isUserCorrection("galat ".repeat(60)))
+    }
+
+    @Test fun lastExchangeFindsLatestPair() {
+        val h = listOf(
+            Pair("user", "q1"), Pair("model", "a1"),
+            Pair("user", "q2"), Pair("model", "a2")
+        )
+        val ex = Honesty.lastExchange(h)
+        assertEquals("q2", ex?.user)
+        assertEquals("a2", ex?.answer)
+        assertNull(Honesty.lastExchange(emptyList()))
+        assertNull(Honesty.lastExchange(listOf(Pair("user", "sirf sawaal"))))
+    }
+
+    @Test fun correctionRequestCarriesPreviousAnswer() {
+        val note = Honesty.correctionRequest(Honesty.Exchange("2+2 kitna?", "5 hota hai"))
+        assertTrue(note.contains("2+2 kitna?"))
+        assertTrue(note.contains("5 hota hai"))
+        // pichla jawab na mile tab bhi note bane
+        assertTrue(Honesty.correctionRequest(null).contains("NOTE"))
+    }
+
+    @Test fun spokenTextIsClean() {
+        assertEquals("Dekho link bas", Honesty.spokenText("Dekho https://a.com/x bas"))
+        assertEquals("Line one. Line two", Honesty.spokenText("Line one\nLine two"))
+        assertEquals("Bold tag ok", Honesty.spokenText("**Bold** #tag \uD83D\uDE00 ok"))
+        assertEquals("", Honesty.spokenText("\uD83D\uDE00"))
+        assertEquals("Hello", Honesty.spokenText("Hello\n\nSources:\n1. A - https://a.com"))
+    }
+
     @Test fun sourcesBlockDedupes() {
         val b = Honesty.sourcesBlock(listOf(Source("A", "https://a.com"), Source("A2", "https://a.com"), Source("B", "https://b.com")))
         assertTrue(b.startsWith("\n\nSources:"))
