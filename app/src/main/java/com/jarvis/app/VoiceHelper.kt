@@ -11,8 +11,10 @@ object VoiceHelper {
         "Awaaz 1: Cute", "Awaaz 2: Narm", "Awaaz 3: Khush",
         "Awaaz 4: Shant", "Awaaz 5: Tez", "Awaaz 6: Mithi"
     )
-    private val pitches = floatArrayOf(1.25f, 1.1f, 1.4f, 1.0f, 1.3f, 1.2f)
-    private val rates = floatArrayOf(1.0f, 0.9f, 1.1f, 0.85f, 1.2f, 0.95f)
+    // Pitch/rate sirf halka sa farak dete hain. Bahut zyada pitch awaaz ko nakli (chipmunk jaisa) bana deta hai
+    // aur "female" awaaz nahi banata. Asli farak engine ki alag-alag awaazon (neeche engineVoices) se aata hai.
+    private val pitches = floatArrayOf(1.08f, 1.04f, 1.12f, 1.0f, 1.06f, 1.1f)
+    private val rates = floatArrayOf(0.97f, 0.93f, 1.02f, 0.9f, 1.05f, 0.95f)
 
     fun index(ctx: Context): Int {
         val i = ctx.getSharedPreferences("jarvis", Context.MODE_PRIVATE).getInt("voice_idx", 0)
@@ -46,9 +48,30 @@ object VoiceHelper {
             }
         } catch (e: Exception) {
         }
-        // India wali awaaz pehle, phir naam ke hisaab se
-        out.sortWith(compareBy<Voice>({ if (it.locale.country == "IN") 0 else 1 }, { it.name }))
+        // India wali awaaz pehle, phir jinke naam se female ka andaaza ho, phir behtar quality, phir naam
+        out.sortWith(
+            compareBy<Voice>(
+                { if (it.locale.country == "IN") 0 else 1 },
+                { femaleHint(it) },
+                { -it.quality },
+                { it.name }
+            )
+        )
         return out
+    }
+
+    /**
+     * Android mein awaaz ka gender poochhne ka koi official tareeka nahi hai. Kuch engines naam mein
+     * "female"/"male" likhte hain; sirf wahi pakde jaate hain. Baaki awaazon ke liye Settings mein
+     * Awaaz 1-6 chunkar test karo. 0 = naam mein female, 1 = pata nahi, 2 = naam mein male.
+     */
+    private fun femaleHint(v: Voice): Int {
+        val n = v.name.lowercase()
+        return when {
+            n.contains("female") -> 0
+            n.contains("male") -> 2
+            else -> 1
+        }
     }
 
     /** (offline awaaz, online awaaz) - online wali ko internet chahiye */
