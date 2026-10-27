@@ -40,6 +40,13 @@ android {
         viewBinding = true
     }
 
+    // Vosk (offline mic) ki native library theek se load ho, isliye
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     testOptions {
         unitTests.isReturnDefaultValues = true
     }
@@ -60,6 +67,10 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+
+    // Offline Hindi + English mic (Vosk)
+    implementation("com.alphacephei:vosk-android:0.3.75")
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
 
     // Local offline AI
     implementation("com.google.ai.edge.litertlm:litertlm-android:$litertLmVersion")
