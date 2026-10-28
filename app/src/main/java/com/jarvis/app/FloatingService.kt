@@ -79,6 +79,9 @@ class FloatingService : Service() {
     private var voiceWarned = false
     private var packAsked = false
 
+    // Experimental: Jarvi bol rahi ho aur user bole to bolna ruk jaye (Chat menu se ON hota hai)
+    private val bargeIn = BargeIn { handler.post { onBargeIn() } }
+
     // Pehla kaam chal raha hai? (agar 90 second se zyada ho to atka hua maano)
     @Volatile
     private var working = false
@@ -152,10 +155,18 @@ class FloatingService : Service() {
                     VoiceHelper.apply(applicationContext, t)
                     t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                         override fun onStart(utteranceId: String?) {
-                            handler.post { pet?.talk(60000) }
+                            handler.post {
+                                pet?.talk(60000)
+                                if (bargeEnabled()) bargeIn.start()
+                            }
+                        }
+
+                        override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                            bargeIn.stop()
                         }
 
                         override fun onDone(utteranceId: String?) {
+                            bargeIn.stop()
                             handler.post {
                                 calm()
                                 maybeAutoListen()
@@ -163,6 +174,7 @@ class FloatingService : Service() {
                         }
 
                         override fun onError(utteranceId: String?) {
+                            bargeIn.stop()
                             handler.post {
                                 wantListenAfter = false
                                 calm()
@@ -397,8 +409,20 @@ class FloatingService : Service() {
         speakOut(text, spoken)
     }
 
+    private fun bargeEnabled(): Boolean =
+        Prefs.bool(applicationContext, "barge_in", false) &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    /** User bolne laga: bolna rok kar sunna shuru */
+    private fun onBargeIn() {
+        if (listening || dragging) return
+        stopSpeaking()
+        startListening(true)
+    }
+
     private fun stopSpeaking() {
         wantListenAfter = false
+        bargeIn.stop()
         try {
             tts?.stop()
         } catch (e: Exception) {
@@ -807,6 +831,7 @@ class FloatingService : Service() {
 
     override fun onDestroy() {
         instance = null
+        bargeIn.stop()
         handler.removeCallbacksAndMessages(null)
         walkAnim?.cancel()
         vosk?.cancel()
