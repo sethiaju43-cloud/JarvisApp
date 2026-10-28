@@ -570,7 +570,7 @@ object Brain {
             names.append(a.first)
             count++
         }
-        val memLine = MemoryStore.contextLine(context, userText)
+        val memLine = MemoryStore.contextLine(context, userText) + PastChats.line(context, userText)
         val sysOnline = Prompts.online(context, task, appLine, timeLine, memLine, names.toString())
         val sysLocal = Prompts.local(context, task, timeLine, memLine)
 
