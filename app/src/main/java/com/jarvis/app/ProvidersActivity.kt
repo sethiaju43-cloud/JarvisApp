@@ -76,11 +76,11 @@ class ProvidersActivity : ScreenActivity() {
         }
 
         val status = ProviderRegistry.lastCheck[p.id] ?: ""
-        val cool = ModelRouter.health.remainingMs(p.id)
+        val rests = ModelRouter.restLines(c, p.id)
         val sb = StringBuilder()
         sb.append(if (ProviderRegistry.isConfigured(c, p.id)) "✅ Router ke liye available" else "⛔ Available nahi (key/model/URL poora karo)")
         if (status.isNotBlank()) sb.append("\n").append(status)
-        if (cool > 0) sb.append("\n⏳ Abhi rest par: ").append(ModelRouter.health.reasonOf(p.id)).append(" (").append(cool / 60000 + 1).append(" min)")
+        for (rl in rests) sb.append("\n⏳ Abhi rest par: ").append(rl)
         card.addView(UiKit.text(c, sb.toString(), 12f))
 
         fun saveAll() {
