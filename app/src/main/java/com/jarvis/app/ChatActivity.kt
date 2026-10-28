@@ -37,6 +37,12 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var autoListening = false
     private var screenResumed = false
     private var autoListenRunnable: Runnable? = null
+
+    // Jawab aane se pehle user ne naya message bheja: purana roka, naya uske baad jayega
+    private var queuedText: String? = null
+
+    // Experimental: Jarvi bol rahi ho aur user bole to bolna ruk jaye
+    private val bargeIn = BargeIn { runOnUiThread { onBargeIn() } }
     private var netCb: ConnectivityManager.NetworkCallback? = null
 
     // Kitne jawab abhi aane baaki hain ("..." dikh raha hai)
@@ -143,6 +149,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Screen se jaate hi mic aur bolna band, taaki peeche se sunna/bolna na chalta rahe
         cancelAutoListen()
         autoListening = false
+        bargeIn.stop()
         if (voice?.listening == true) voice?.cancel()
         tts?.stop()
         super.onPause()
@@ -187,10 +194,14 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 VoiceHelper.apply(this, t)
                 t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(utteranceId: String?) {
-                        runOnUiThread { b.btnStopSpeak.visibility = View.VISIBLE }
+                        runOnUiThread {
+                            b.btnStopSpeak.visibility = View.VISIBLE
+                            if (bargeEnabled()) bargeIn.start()
+                        }
                     }
 
                     override fun onDone(utteranceId: String?) {
+                        bargeIn.stop()
                         runOnUiThread {
                             b.btnStopSpeak.visibility = View.GONE
                             afterSpeech()
@@ -199,10 +210,12 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
                     @Deprecated("Deprecated in Java")
                     override fun onError(utteranceId: String?) {
+                        bargeIn.stop()
                         runOnUiThread { b.btnStopSpeak.visibility = View.GONE }
                     }
 
                     override fun onStop(utteranceId: String?, interrupted: Boolean) {
+                        bargeIn.stop()
                         runOnUiThread { b.btnStopSpeak.visibility = View.GONE }
                     }
                 })
@@ -246,6 +259,38 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         autoListening = true
         v.start()
+    }
+
+    // ---------------- Beech mein tokna (experimental) ----------------
+    private fun bargeEnabled(): Boolean =
+        Prefs.bool(this, "barge_in", false) && screenResumed &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+
+    /** User bolne laga: Jarvi chup ho aur sunna shuru kare (purani awaaz naye message par na chale) */
+    private fun onBargeIn() {
+        if (!screenResumed || isFinishing || isDestroyed) return
+        val v = voice ?: return
+        if (v.listening) return
+        tts?.stop()
+        b.btnStopSpeak.visibility = View.GONE
+        cancelAutoListen()
+        autoListening = true
+        v.start()
+    }
+
+    private fun toggleBargeIn() {
+        val now = !Prefs.bool(this, "barge_in", false)
+        Prefs.setBool(this, "barge_in", now)
+        if (now) {
+            Toast.makeText(
+                this,
+                "✋ Beech mein tokna ON (experimental). Earphones ke saath behtar chalta hai; speaker par Jarvi ki apni awaaz se galti se trigger ho sakta hai.",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            bargeIn.stop()
+            Toast.makeText(this, "Beech mein tokna OFF", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun toggleChatMode() {
@@ -382,7 +427,11 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 Brain.requestStop()
                 Toast.makeText(this, "Ruk rahi hun 🛑", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "Ek minute, pehla kaam ho raha hai ⏳", Toast.LENGTH_SHORT).show()
+                // Naya message: purana jawab roko (purani awaaz/jawab ab kaam ka nahi), naya uske baad bhejo
+                queuedText = text
+                Brain.requestStop()
+                tts?.stop()
+                Toast.makeText(this, "Purana rok diya, ab ye le rahi hun ⏳", Toast.LENGTH_SHORT).show()
             }
             return
         }
@@ -435,11 +484,18 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     adapter.notifyDataSetChanged()
                     speak(reply)
                 } else {
+                    // Naya message line mein hai to purana (ab bekaar) jawab bolna nahi
+                    val hasQueued = queuedText != null
                     // Error ka message bolkar nahi sunate (technical lagta hai), uski jagah chhoti saaf line bolte hain
-                    fillPlaceholder(reply, true, if (wasErr) Honesty.SPOKEN_ERROR else null)
+                    fillPlaceholder(reply, !hasQueued, if (wasErr) Honesty.SPOKEN_ERROR else null)
                 }
                 refreshStatus()
                 checkPendingMemory()
+                val q = queuedText
+                if (q != null) {
+                    queuedText = null
+                    sendMessage(q)
+                }
             }
         }.start()
     }
@@ -494,6 +550,10 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             0, 8, 7,
             if (chatModeOn()) "🗣 Baat-cheet mode: ON (band karo)" else "🗣 Baat-cheet mode: OFF (hands-free shuru karo)"
         )
+        pm.menu.add(
+            0, 9, 8,
+            if (Prefs.bool(this, "barge_in", false)) "✋ Beech mein tokna: ON (experimental)" else "✋ Beech mein tokna: OFF (experimental)"
+        )
         pm.setOnMenuItemClickListener { mi ->
             when (mi.itemId) {
                 1 -> newChat()
@@ -510,6 +570,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     }
                 }
                 8 -> toggleChatMode()
+                9 -> toggleBargeIn()
             }
             true
         }
@@ -615,6 +676,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onDestroy() {
         cancelAutoListen()
         autoListening = false
+        bargeIn.stop()
         NetworkMonitor.unregister(this, netCb)
         voice?.destroy()
         ModelRouter.onStatus = null
