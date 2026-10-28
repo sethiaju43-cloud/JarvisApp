@@ -76,3 +76,10 @@ Ye badlav bhi **build/test nahi kiye gaye** (is audit ke waqt Gradle/Kotlin comp
 - **Errors:** technical error user ko ya awaaz mein nahi dikhta; developer ke liye `Log` mein (key chhupakar). (`ModelRouter.kt`, `ChatActivity.kt`, `FloatingService.kt`)
 - **Build:** bekaar `kotlinx-coroutines-android` dependency hataai (code mein kahin use nahi hoti).
 - **Optional safai:** `GeminiClient.kt`, `FactsActivity.kt` aur `res/layout/activity_facts.xml` purane/bekaar hain (manifest mein nahi, kahin se khulte nahi). Chaho to teeno delete kar do.
+
+## Naye badlav (conversation, tokna, purani chats)
+
+- **Baat-cheet/behes:** `Prompts.kt` mein `DIALOGUE_RULES`: pareshani par pehle poochhna, adhoori baat par sawaal, tathya/raay/andaaza mein farak, bina wajah haan-mein-haan nahi, behtar tark ho to maan lena. Koi hardcoded jawab nahi, sirf instructions.
+- **Naya message jawab ke beech mein:** purana jawab roka jata hai (aur bola nahi jata), naya message uske baad jata hai. Chal rahi network request beech mein cancel nahi hoti, wo khatam hokar discard hoti hai.
+- **Beech mein tokna (EXPERIMENTAL, default OFF):** Chat menu → "Beech mein tokna". Jarvi bol rahi ho aur aap bolo to bolna ruk kar sunna shuru. Ye sirf awaaz ka zor naapta hai (`BargeIn.kt`), asli full-duplex nahi. Earphones ke saath behtar; speaker par galat trigger ho sakta hai. Phone par test nahi hua.
+- **Purani chats se yaad:** `PastChats.kt` archive ki hui chats mein se milti-julti 1-2 baatein prompt mein jodta hai (sirf phone mein, sensitive nahi, Memory band ho to nahi).
