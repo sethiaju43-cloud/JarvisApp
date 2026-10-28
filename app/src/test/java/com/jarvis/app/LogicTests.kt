@@ -107,6 +107,34 @@ class HonestyTest {
     }
 }
 
+class PastChatsTest {
+    @Test fun picksRelatedPastExchange() {
+        val chats = listOf(
+            listOf(
+                ChatMessage("mere dost se jhagda ho gaya office project par", true),
+                ChatMessage("Kya hua tha? Bahas kis baat par hui?", false),
+                ChatMessage("aaj mausam kaisa hai", true),
+                ChatMessage("Dhoop khili hai", false)
+            )
+        )
+        val r = PastChats.pick("office project dost ka jhagda kaise suljhaun", chats, 2)
+        assertEquals(1, r.size)
+        assertTrue(r[0].contains("office project"))
+        assertTrue(r[0].contains("Bahas"))
+    }
+
+    @Test fun ignoresSensitiveAndUnrelated() {
+        val chats = listOf(
+            listOf(
+                ChatMessage("mera OTP 1234 hai office project", true),
+                ChatMessage("ok", false)
+            )
+        )
+        assertTrue(PastChats.pick("office project kaisa chal raha hai", chats, 2).isEmpty())
+        assertTrue(PastChats.pick("hello", chats, 2).isEmpty())
+    }
+}
+
 class MemoryLogicTest {
     @Test fun sensitiveDetected() {
         assertTrue(SensitiveFilter.isSensitive("mera number 9876543210 hai"))
