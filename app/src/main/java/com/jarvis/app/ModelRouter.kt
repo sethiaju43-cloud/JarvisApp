@@ -53,8 +53,32 @@ object ModelRouter {
     const val LIMIT_MSG =
         "Free limit abhi khatam ho gaya 🥺 Thodi der baad try karo, ya Settings mein doosra provider ya local model jodo."
 
-    fun onlineBackends(ctx: Context): List<Backend> =
-        ProviderRegistry.configured(ctx).map { OnlineBackend(ctx, it) }
+    /**
+     * Online models TIER ke hisaab se: pehle sabhi providers ka tier-1 model, phir sabhi ka tier-2, ...
+     * (jis provider mein API key daali hai wahi aate hain). Dekho ModelChain.
+     */
+    fun onlineBackends(ctx: Context): List<Backend> {
+        val chains = ProviderRegistry.configured(ctx).map { Pair(it.id, ProviderRegistry.chain(ctx, it.id)) }
+        val out = ArrayList<Backend>()
+        for ((pid, m) in ModelChain.interleave(chains)) {
+            val preset = ProviderRegistry.preset(pid) ?: continue
+            out.add(OnlineBackend(ctx, preset, m))
+        }
+        return out
+    }
+
+    /** Providers screen ke liye: is provider ke kaun se models abhi rest par hain */
+    fun restLines(ctx: Context, providerId: String): List<String> {
+        val out = ArrayList<String>()
+        val pr = health.remainingMs(providerId)
+        if (pr > 0) out.add("poora provider: " + health.reasonOf(providerId) + " (" + (pr / 60000 + 1) + " min)")
+        for (m in ProviderRegistry.chain(ctx, providerId)) {
+            val k = ModelChain.key(providerId, m)
+            val r = health.remainingMs(k)
+            if (r > 0) out.add(m + ": " + health.reasonOf(k) + " (" + (r / 60000 + 1) + " min)")
+        }
+        return out
+    }
 
     fun localBackend(ctx: Context): Backend? =
         LocalLlm.activeModel(ctx)?.let { LocalBackend(ctx, it) }
