@@ -30,7 +30,8 @@ object ProviderRegistry {
         ProviderPreset(
             "gemini", "Google Gemini", ProviderKind.GEMINI,
             "https://generativelanguage.googleapis.com/v1beta",
-            listOf("gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash"),
+            // Pehla = tier 1; limit lagne par agla (halka) model chalega
+            listOf("gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite"),
             "Free tier hai (limit Google ke rules par). Search aur photo samajhna built-in.",
             "https://aistudio.google.com/apikey"
         ),
@@ -78,6 +79,10 @@ object ProviderRegistry {
     }
 
     fun setModel(ctx: Context, id: String, m: String) = Prefs.setStr(ctx, "prov_${id}_model", m.trim())
+
+    /** Is provider ke models ki line (pehla = tier 1). Model box mein comma se list likh sakte ho. */
+    fun chain(ctx: Context, id: String): List<String> =
+        ModelChain.parse(model(ctx, id), preset(id)?.defaultModels ?: emptyList())
 
     fun baseUrl(ctx: Context, id: String): String {
         val p = preset(id) ?: return ""
@@ -142,6 +147,7 @@ object ProviderRegistry {
                         models = models.sortedByDescending { it.endsWith(":free") }
                     }
                     ModelRouter.health.clear(id)
+                    for (m in chain(ctx, id)) ModelRouter.health.clear(ModelChain.key(id, m))
                     lastCheck[id] = "✅ Key theek hai, " + models.size + " models mile"
                     CheckResult(true, models, "Key theek hai, " + models.size + " models mile")
                 }
@@ -164,12 +170,17 @@ object ProviderRegistry {
     }
 }
 
-/** Ek online provider+model ko router ke liye "backend" banata hai */
-class OnlineBackend(private val ctx: Context, private val p: ProviderPreset) : Backend {
+/**
+ * Ek online (provider + ek model) ko router ke liye "backend" banata hai.
+ * Router tier ke hisaab se in backends ko ek-ek karke try karta hai (dekho ModelChain).
+ */
+class OnlineBackend(
+    private val ctx: Context,
+    private val p: ProviderPreset,
+    private val model: String
+) : Backend {
 
-    private val model = ProviderRegistry.model(ctx, p.id)
-
-    override val id: String get() = p.id
+    override val id: String get() = ModelChain.key(p.id, model)
     override val label: String get() = p.name.substringBefore(" (") + " · " + model
     override val isLocal: Boolean get() = false
     override val supportsVision: Boolean get() = ProviderRegistry.vision(ctx, p.id)
@@ -177,17 +188,29 @@ class OnlineBackend(private val ctx: Context, private val p: ProviderPreset) : B
         get() = p.kind == ProviderKind.GEMINI || SearchService.hasKeyedProvider(ctx)
     override val capability: Int get() = ModelRank.score(model)
 
-    override fun call(req: RouterRequest): Outcome =
-        if (p.kind == ProviderKind.GEMINI) callGemini(req) else callOpenAi(req)
+    override fun call(req: RouterRequest): Outcome {
+        // Galat key ya internet/server dikkat ho to us provider ke baaki models par bekaar request mat bhejo
+        val h = ModelRouter.health
+        if (h.inCooldown(p.id)) {
+            val why = h.reasonOf(p.id)
+            return fail(if (why.contains("key")) ErrKind.AUTH else ErrKind.OTHER, why)
+        }
+        val o = if (p.kind == ProviderKind.GEMINI) callGemini(req) else callOpenAi(req)
+        if (!o.ok) {
+            if (o.kind == ErrKind.AUTH) h.cooldown(p.id, 10 * 60_000L, "API key galat ya expire")
+            else if (o.kind == ErrKind.NETWORK) h.cooldown(p.id, 30_000L, "internet/server dikkat")
+        }
+        return o
+    }
 
     private val json = "application/json".toMediaType()
 
     private fun fail(kind: ErrKind, msg: String, retry: Int = 0) = Outcome(false, msg, kind, retry)
 
     // ---------------- Gemini ----------------
-    private fun geminiOnce(key: String, m: String, body: JSONObject): Outcome {
+    private fun geminiOnce(key: String, body: JSONObject): Outcome {
         return try {
-            val url = ProviderRegistry.baseUrl(ctx, p.id) + "/models/" + m + ":generateContent"
+            val url = ProviderRegistry.baseUrl(ctx, p.id) + "/models/" + model + ":generateContent"
             val rq = Request.Builder().url(url).header("x-goog-api-key", key)
                 .post(body.toString().toRequestBody(json)).build()
             Net.api.newCall(rq).execute().use { r ->
@@ -206,10 +229,10 @@ class OnlineBackend(private val ctx: Context, private val p: ProviderPreset) : B
         }
     }
 
-    private fun geminiCall(key: String, m: String, body: JSONObject): Outcome {
+    private fun geminiCall(key: String, body: JSONObject): Outcome {
         var cur = body
         for (round in 0..1) {
-            val r = geminiOnce(key, m, cur)
+            val r = geminiOnce(key, cur)
             if (r.kind == ErrKind.BAD_REQUEST && cur.has("generationConfig")) {
                 val plain = JSONObject(cur.toString())
                 plain.remove("generationConfig")
@@ -218,35 +241,27 @@ class OnlineBackend(private val ctx: Context, private val p: ProviderPreset) : B
             }
             return r
         }
-        return geminiOnce(key, m, cur)
+        return geminiOnce(key, cur)
     }
 
     private fun callGemini(req: RouterRequest): Outcome {
         val key = ProviderRegistry.key(ctx, p.id)
         if (key.isBlank()) return fail(ErrKind.AUTH, "Gemini API key nahi hai")
         val hist = ContextTrimmer.trim(req.history, 8000)
-        val models = (listOf(model) + p.defaultModels).distinct()
-        var last: Outcome? = null
-        for (m in models) {
-            if (req.needSearch) {
-                val r = geminiCall(key, m, OnlineParsers.buildGeminiBody(hist, req.systemOnline, true, null))
-                if (r.ok) return Outcome(true, r.text, ErrKind.NONE, 0, r.sources, true)
-                if (r.kind == ErrKind.AUTH) return r
-                if (r.kind == ErrKind.RATE_LIMIT || r.kind == ErrKind.QUOTA || r.kind == ErrKind.NOT_FOUND) {
-                    last = r
-                    continue
-                }
-            }
-            val r = geminiCall(key, m, OnlineParsers.buildGeminiBody(hist, req.systemOnline, false, req.imageB64))
-            if (r.ok) {
-                return Outcome(true, r.text, ErrKind.NONE, 0, emptyList(), false,
-                    if (req.needSearch) "search nahi hua" else "")
-            }
-            last = r
-            if (r.kind == ErrKind.RATE_LIMIT || r.kind == ErrKind.QUOTA || r.kind == ErrKind.NOT_FOUND) continue
-            return r
+        if (req.needSearch) {
+            val r = geminiCall(key, OnlineParsers.buildGeminiBody(hist, req.systemOnline, true, null))
+            if (r.ok) return Outcome(true, r.text, ErrKind.NONE, 0, r.sources, true)
+            // Key/limit/model ki dikkat: seedha router ko do, wo agle model par jayega
+            if (r.kind == ErrKind.AUTH || r.kind == ErrKind.RATE_LIMIT || r.kind == ErrKind.QUOTA ||
+                r.kind == ErrKind.NOT_FOUND
+            ) return r
         }
-        return last ?: fail(ErrKind.OTHER, "Jawab nahi aaya")
+        val r = geminiCall(key, OnlineParsers.buildGeminiBody(hist, req.systemOnline, false, req.imageB64))
+        if (r.ok) {
+            return Outcome(true, r.text, ErrKind.NONE, 0, emptyList(), false,
+                if (req.needSearch) "search nahi hua" else "")
+        }
+        return r
     }
 
     // ---------------- OpenAI-compatible ----------------
