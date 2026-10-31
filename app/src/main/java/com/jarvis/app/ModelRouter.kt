@@ -120,7 +120,13 @@ object ModelRouter {
             lastLabel = res.backend.label
             return res
         }
-        val msg = when (res.failKind) {
+        // Provider ke fast-fail (galat key / internet dikkat) ka asli kaaran chhupna nahi chahiye
+        var kind = res.failKind
+        if (kind == ErrKind.OTHER) {
+            val c = providerCause(ctx)
+            if (c != null) kind = c
+        }
+        val baseMsg = when (kind) {
             ErrKind.RATE_LIMIT, ErrKind.QUOTA -> LIMIT_MSG
             ErrKind.AUTH -> "API key galat ya expire lag rahi hai. Settings → Online AI providers mein 'Check' dabao."
             ErrKind.NETWORK -> "Internet ya API mein dikkat hai. Thodi der baad try karo."
@@ -130,8 +136,13 @@ object ModelRouter {
             }
             ErrKind.SERVER -> "AI provider ka server abhi dikkat mein hai 😕 Thodi der baad dobara try karo."
             ErrKind.EMPTY -> "Model ne khali jawab diya 😕 Apna sawaal dobara poochho."
+            ErrKind.NOT_FOUND -> "Model ka naam galat hai ya is key par nahi mila 😕 Online AI providers mein 'Check + models' dabakar sahi naam chuno."
+            ErrKind.BAD_REQUEST -> "Provider ko request samajh nahi aayi 😕 Online AI providers mein Model box check karo."
             else -> friendlyOther(res.failMsg)
         }
+        // Kaun kaun se model try hue (naam aur saaf kaaran, koi key/secret nahi) taaki wajah dikhe
+        val tried = res.failedBefore.takeLast(3).joinToString("; ")
+        val msg = if (tried.isNotBlank()) baseMsg + "\nTry hue: " + tried else baseMsg
         // Developer ke liye asli wajah (key/token chhupakar), user ko technical text nahi dikhta
         Log.w("JarviRouter", "fail kind=" + res.failKind + " tried=" + res.failedBefore + " msg=" +
             OnlineParsers.redact(res.failMsg).take(200))
@@ -139,6 +150,17 @@ object ModelRouter {
             false, "", null, res.failedBefore, res.failKind, msg,
             emptyList(), false, "", res.notes
         )
+    }
+
+    /** Kisi provider par galat key ya internet dikkat ka cooldown chal raha ho to uska kaaran */
+    private fun providerCause(ctx: Context): ErrKind? {
+        for (p in ProviderRegistry.configured(ctx)) {
+            if (!health.inCooldown(p.id)) continue
+            val why = health.reasonOf(p.id)
+            if (why.contains("key")) return ErrKind.AUTH
+            if (why.contains("internet")) return ErrKind.NETWORK
+        }
+        return null
     }
 
     /**
