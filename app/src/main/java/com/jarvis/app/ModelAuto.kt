@@ -56,6 +56,13 @@ object ModelAuto {
                 else -> versionOf(b).compareTo(versionOf(a)) // barabar ho to naya version pehle
             }
         }
-        return cands.sortedWith(cmp).take(max)
+        // Hamesha sabse behtar 'max' models chuno; "tez pehle" mein bas unhi ko ulta (halka pehle) laga do.
+        // Isse bilkul chhote/bekaar models nahi chunte, sirf order badalta hai.
+        val topStrong = cands.sortedWith(Comparator<String> { a, b ->
+            val sa = score(a)
+            val sb = score(b)
+            if (sa != sb) sb.compareTo(sa) else versionOf(b).compareTo(versionOf(a))
+        }).take(max)
+        return if (strongFirst) topStrong else topStrong.sortedWith(cmp)
     }
 }
