@@ -50,6 +50,10 @@ object ModelRouter {
     @Volatile
     var onStatus: ((String) -> Unit)? = null
 
+    /** Pichli network dikkat ka exception ka naam (sirf class ka naam, koi secret nahi). Wajah pata karne ke liye. */
+    @Volatile
+    var lastNetError: String = ""
+
     const val LIMIT_MSG =
         "Free limit abhi khatam ho gaya 🥺 Thodi der baad try karo, ya Settings mein doosra provider ya local model jodo."
 
@@ -129,7 +133,8 @@ object ModelRouter {
         val baseMsg = when (kind) {
             ErrKind.RATE_LIMIT, ErrKind.QUOTA -> LIMIT_MSG
             ErrKind.AUTH -> "API key galat ya expire lag rahi hai. Settings → Online AI providers mein 'Check' dabao."
-            ErrKind.NETWORK -> "Internet ya API mein dikkat hai. Thodi der baad try karo."
+            ErrKind.NETWORK -> "Internet ya API mein dikkat hai. Thodi der baad try karo." +
+                (if (lastNetError.isNotBlank()) " [" + lastNetError + "]" else "")
             ErrKind.NONE -> {
                 if (res.notes.isNotEmpty()) res.notes.joinToString(". ") + ". Thodi der baad try karo."
                 else "Jawab nahi aaya."
