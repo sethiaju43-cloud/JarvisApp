@@ -25,7 +25,7 @@ class CheckResult(val ok: Boolean, val models: List<String>, val message: String
 /** Online AI providers ki list aur unki settings. Gemini zaroori NAHI hai: koi bhi ek provider chalega. */
 object ProviderRegistry {
 
-    // Model naam sirf suggestion hain. Asli list 'Check' dabane par provider se aati hai.
+    // Model naam sirf suggestion hain. Asli list 'Check' dabane par (ya khud) provider se aati hai.
     val presets: List<ProviderPreset> = listOf(
         ProviderPreset(
             "gemini", "Google Gemini", ProviderKind.GEMINI,
@@ -80,9 +80,74 @@ object ProviderRegistry {
 
     fun setModel(ctx: Context, id: String, m: String) = Prefs.setStr(ctx, "prov_${id}_model", m.trim())
 
-    /** Is provider ke models ki line (pehla = tier 1). Model box mein comma se list likh sakte ho. */
-    fun chain(ctx: Context, id: String): List<String> =
-        ModelChain.parse(model(ctx, id), preset(id)?.defaultModels ?: emptyList())
+    // ---- Models khud chunna (automatic) ----
+    private val lastTry = ConcurrentHashMap<String, Long>()
+    private const val FOUND_MAX_AGE = 24L * 60L * 60L * 1000L
+
+    /** Automatic mode (custom provider ke liye nahi). Default ON. */
+    fun auto(ctx: Context, id: String): Boolean =
+        preset(id)?.custom == false && Prefs.bool(ctx, "prov_${id}_auto", true)
+
+    fun setAuto(ctx: Context, id: String, v: Boolean) = Prefs.setBool(ctx, "prov_${id}_auto", v)
+
+    /** true = tagda model pehle, false = tez/halka pehle (sab providers ke liye ek hi setting) */
+    fun strongFirst(ctx: Context): Boolean = Prefs.str(ctx, "model_order", "strong") != "fast"
+
+    fun setStrongFirst(ctx: Context, v: Boolean) = Prefs.setStr(ctx, "model_order", if (v) "strong" else "fast")
+
+    fun found(ctx: Context, id: String): List<String> =
+        Prefs.str(ctx, "prov_${id}_found", "").split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
+    private fun foundAt(ctx: Context, id: String): Long =
+        Prefs.str(ctx, "prov_${id}_found_at", "0").toLongOrNull() ?: 0L
+
+    fun saveFound(ctx: Context, id: String, models: List<String>) {
+        Prefs.setStr(ctx, "prov_${id}_found", models.take(300).joinToString(","))
+        Prefs.setStr(ctx, "prov_${id}_found_at", System.currentTimeMillis().toString())
+    }
+
+    /** Model nahi mila (404) jaisa kuch hua: list purani ho gayi, jaldi dobara mangao */
+    fun invalidateFound(ctx: Context, id: String) {
+        Prefs.setStr(ctx, "prov_${id}_found_at", "0")
+        lastTry.remove(id)
+    }
+
+    /** List khali ya 24 ghante se purani ho to peeche (background) mein provider se nayi list mangao */
+    private fun refreshIfStale(ctx: Context, id: String) {
+        if (!auto(ctx, id) || key(ctx, id).isBlank()) return
+        val now = System.currentTimeMillis()
+        val stale = found(ctx, id).isEmpty() || now - foundAt(ctx, id) > FOUND_MAX_AGE
+        if (!stale) return
+        val last = lastTry[id] ?: 0L
+        if (now - last < 5 * 60_000L) return
+        lastTry[id] = now
+        if (!NetworkMonitor.isOnline(ctx)) return
+        val app = ctx.applicationContext
+        Thread {
+            try {
+                check(app, id, background = true)
+            } catch (e: Exception) {
+            }
+        }.start()
+    }
+
+    /**
+     * Is provider ke models ki line (pehla = tier 1).
+     * - Model box mein comma se apni line likhi ho to wahi.
+     * - Automatic ON ho to provider ki list se khud chuni hui line (abhi list na aayi ho to preset).
+     * - Warna Model box ka ek naam pehle, phir preset ke baaki.
+     */
+    fun chain(ctx: Context, id: String): List<String> {
+        val p = preset(id) ?: return emptyList()
+        val raw = Prefs.str(ctx, "prov_${id}_model", "")
+        if (raw.contains(',') || raw.contains(';')) return ModelChain.parse(raw, emptyList())
+        if (auto(ctx, id)) {
+            refreshIfStale(ctx, id)
+            val ranked = ModelAuto.order(id, found(ctx, id), strongFirst(ctx), 3)
+            return if (ranked.isNotEmpty()) ranked else p.defaultModels
+        }
+        return ModelChain.parse(model(ctx, id), p.defaultModels)
+    }
 
     fun baseUrl(ctx: Context, id: String): String {
         val p = preset(id) ?: return ""
@@ -117,7 +182,7 @@ object ProviderRegistry {
     // Last 'Check' ka nateeja (sirf memory mein)
     val lastCheck = ConcurrentHashMap<String, String>()
 
-    fun check(ctx: Context, id: String): CheckResult {
+    fun check(ctx: Context, id: String, background: Boolean = false): CheckResult {
         val p = preset(id) ?: return CheckResult(false, emptyList(), "Provider nahi mila")
         val base = baseUrl(ctx, id)
         if (!Net.isHttps(base)) return CheckResult(false, emptyList(), "Sirf https:// URL chalega")
@@ -146,8 +211,11 @@ object ProviderRegistry {
                     if (id == "openrouter") {
                         models = models.sortedByDescending { it.endsWith(":free") }
                     }
-                    ModelRouter.health.clear(id)
-                    for (m in chain(ctx, id)) ModelRouter.health.clear(ModelChain.key(id, m))
+                    saveFound(ctx, id, models)
+                    if (!background) {
+                        ModelRouter.health.clear(id)
+                        for (m in chain(ctx, id)) ModelRouter.health.clear(ModelChain.key(id, m))
+                    }
                     lastCheck[id] = "✅ Key theek hai, " + models.size + " models mile"
                     CheckResult(true, models, "Key theek hai, " + models.size + " models mile")
                 }
@@ -196,6 +264,10 @@ class OnlineBackend(
             return fail(if (why.contains("key")) ErrKind.AUTH else ErrKind.OTHER, why)
         }
         val o = if (p.kind == ProviderKind.GEMINI) callGemini(req) else callOpenAi(req)
+        if (!o.ok && o.kind == ErrKind.NOT_FOUND && ProviderRegistry.auto(ctx, p.id)) {
+            // Model hat gaya/naam badla: provider se nayi list mangao
+            ProviderRegistry.invalidateFound(ctx, p.id)
+        }
         if (!o.ok) {
             if (o.kind == ErrKind.AUTH) h.cooldown(p.id, 10 * 60_000L, "API key galat ya expire")
             else if (o.kind == ErrKind.NETWORK) h.cooldown(p.id, 30_000L, "internet/server dikkat")
@@ -225,6 +297,8 @@ class OnlineBackend(
                 }
             }
         } catch (e: Exception) {
+            ModelRouter.lastNetError = e.javaClass.simpleName
+            Net.clearDnsCache()
             fail(ErrKind.NETWORK, "Internet ya API mein dikkat: " + OnlineParsers.redact(e.message ?: ""))
         }
     }
@@ -310,6 +384,8 @@ class OnlineBackend(
                 }
             }
         } catch (e: Exception) {
+            ModelRouter.lastNetError = e.javaClass.simpleName
+            Net.clearDnsCache()
             fail(ErrKind.NETWORK, "Internet ya API mein dikkat: " + OnlineParsers.redact(e.message ?: ""))
         }
     }
