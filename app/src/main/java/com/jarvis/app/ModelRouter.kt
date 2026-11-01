@@ -60,9 +60,11 @@ object ModelRouter {
     /**
      * Online models TIER ke hisaab se: pehle sabhi providers ka tier-1 model, phir sabhi ka tier-2, ...
      * (jis provider mein API key daali hai wahi aate hain). Dekho ModelChain.
+     * task ke hisaab se order: seedhi baat-cheet par tez model pehle (smart mode), baaki par tagda.
      */
-    fun onlineBackends(ctx: Context): List<Backend> {
-        val chains = ProviderRegistry.configured(ctx).map { Pair(it.id, ProviderRegistry.chain(ctx, it.id)) }
+    fun onlineBackends(ctx: Context, task: Task? = null): List<Backend> {
+        val strong = ProviderRegistry.strongFor(ctx, task)
+        val chains = ProviderRegistry.configured(ctx).map { Pair(it.id, ProviderRegistry.chain(ctx, it.id, strong)) }
         val out = ArrayList<Backend>()
         for ((pid, m) in ModelChain.interleave(chains)) {
             val preset = ProviderRegistry.preset(pid) ?: continue
@@ -93,7 +95,7 @@ object ModelRouter {
     fun plan(ctx: Context, task: Task, needsVision: Boolean): List<Backend> =
         RoutePlanner.order(
             task, Prefs.routeMode(ctx), NetworkMonitor.isOnline(ctx),
-            onlineBackends(ctx), localBackend(ctx), avoidLocal(ctx), needsVision
+            onlineBackends(ctx, task), localBackend(ctx), avoidLocal(ctx), needsVision
         )
 
     private fun emptyPlanMessage(ctx: Context, needsVision: Boolean): String {
