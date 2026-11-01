@@ -16,6 +16,11 @@ class ProvidersActivity : ScreenActivity() {
         container.addView(UiKit.text(c,
             "Koi bhi ek provider kaafi hai. Key phone ke secure storage mein encrypted rehti hai, kabhi code ya logs mein nahi. Free limit provider ke rules par hai, unlimited ki guarantee nahi.",
             12f, dim = true))
+        container.addView(UiKit.button(c,
+            "Auto order: " + (if (ProviderRegistry.strongFirst(c)) "Tagda model pehle, phir halka" else "Tez/halka model pehle, phir tagda") +
+                "  (badalne ke liye dabao)") {
+            ProviderRegistry.setStrongFirst(c, !ProviderRegistry.strongFirst(c)); rebuild()
+        })
         for (p in ProviderRegistry.presets) container.addView(providerCard(p, online))
 
         container.addView(UiKit.section(c, "🔎 Internet Search tools"))
@@ -55,6 +60,12 @@ class ProvidersActivity : ScreenActivity() {
         card.addView(UiKit.text(c, p.freeNote, 12f, dim = true))
 
         card.addView(UiKit.switchRow(c, "Use karo", ProviderRegistry.enabled(c, p.id)) { ProviderRegistry.setEnabled(c, p.id, it) })
+        if (!p.custom) {
+            card.addView(UiKit.switchRow(c, "🤖 Models khud chuno (automatic)", ProviderRegistry.auto(c, p.id)) {
+                ProviderRegistry.setAuto(c, p.id, it); rebuild()
+            })
+            card.addView(UiKit.text(c, "Order: " + ProviderRegistry.chain(c, p.id).joinToString("  →  "), 12f, dim = true))
+        }
 
         var baseEdit: android.widget.EditText? = null
         if (p.custom) {
@@ -66,7 +77,7 @@ class ProvidersActivity : ScreenActivity() {
         card.addView(UiKit.text(c, "API key: " + (if (hasKey) "✅ saved" else if (p.custom) "optional (backend ke paas ho to)" else "❌ nahi hai"), 13f))
         val keyEdit = UiKit.input(c, if (hasKey) "naya key daalo to badal jayegi" else "API key", password = true)
         card.addView(keyEdit)
-        card.addView(UiKit.text(c, "Model", 12f, dim = true))
+        card.addView(UiKit.text(c, "Model (automatic band ho tab; ya comma se apni poori line likho)", 12f, dim = true))
         val modelEdit = UiKit.input(c, "model ka naam", ProviderRegistry.model(c, p.id))
         card.addView(modelEdit)
         if (p.kind != ProviderKind.GEMINI) {
