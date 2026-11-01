@@ -8,7 +8,10 @@ object Prefs {
     fun sp(ctx: Context): SharedPreferences =
         ctx.applicationContext.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
 
-    fun bool(ctx: Context, key: String, def: Boolean) = sp(ctx).getBoolean(key, def)
+    // Jinka default ON rakhna hai (user ne kabhi badla na ho to). Baat-cheet mode: Jarvi bolne ke baad khud sunti hai.
+    private val keyDefaults = mapOf("voice_chat_mode" to true)
+
+    fun bool(ctx: Context, key: String, def: Boolean) = sp(ctx).getBoolean(key, keyDefaults[key] ?: def)
     fun setBool(ctx: Context, key: String, v: Boolean) = sp(ctx).edit().putBoolean(key, v).apply()
     fun str(ctx: Context, key: String, def: String) = sp(ctx).getString(key, def) ?: def
     fun setStr(ctx: Context, key: String, v: String) = sp(ctx).edit().putString(key, v).apply()
