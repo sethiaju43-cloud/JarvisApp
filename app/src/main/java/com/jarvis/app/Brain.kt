@@ -542,7 +542,8 @@ object Brain {
             wantSearch = false
         }
 
-        val multi = CommandHandler.hasMultiTask(userText)
+        // Kai SAWAAL ("kaun banaya aur naam kya hai") ko kai KAAM mat samjho: unka jawab dena hai
+        val multi = CommandHandler.hasMultiTask(userText) && ActionWords.any(userText)
         var task = TaskClassifier.classify(userText, false)
         if (screenRelated || multi) task = Task.PHONE
         // User bole "galat tha": pichla sawaal-jawab saath dekar usi ek call mein dobara jaanchne ko kaho
@@ -594,6 +595,7 @@ object Brain {
         var stopped = false
         var failed = false
         var guard = 0
+        var failStreak = 0
         while (guard < 16) {
             guard++
             if (stopFlag) {
@@ -631,7 +633,11 @@ object Brain {
             val res = PhoneActions.interpret(context, cleaned)
             steps.add(res)
             finalText = res
-            if (!more || steps.size >= 12 ||
+            // Step fail hua (😕) to ruko mat: model doosra tareeka try kare (max 2 baar), jaise chhote player par tap karke bada karna
+            val stepFailed = res.contains("😕")
+            if (stepFailed) failStreak++ else failStreak = 0
+            val autoRetry = stepFailed && !more && failStreak <= 2
+            if ((!more && !autoRetry) || steps.size >= 12 ||
                 res.startsWith("Accessibility atak") || res.startsWith("Pehle Permissions")
             ) break
 
