@@ -34,9 +34,12 @@ object ModelAuto {
         return m.groupValues[1].toDoubleOrNull() ?: 0.0
     }
 
-    private fun score(name: String): Int {
+    private fun score(providerId: String, name: String): Int {
         val n = name.lowercase()
         var s = ModelRank.score(n)
+        // Gemini ke 'pro' models free key par aksar quota 0 / available nahi hote: sabse peeche
+        // (flash aur flash-lite pehle chalenge, jo aam taur par free par chalte hain)
+        if (providerId == "gemini" && n.contains("pro")) s -= 4
         // Preview/experimental models aksar kam bharosemand hote hain: thoda peeche
         if (n.contains("preview") || n.contains("exp")) s -= 2
         return s
@@ -49,8 +52,8 @@ object ModelAuto {
     fun order(providerId: String, names: List<String>, strongFirst: Boolean, max: Int): List<String> {
         val cands = names.map { it.trim() }.filter { isChatModel(providerId, it) }.distinct()
         val cmp = Comparator<String> { a, b ->
-            val sa = score(a)
-            val sb = score(b)
+            val sa = score(providerId, a)
+            val sb = score(providerId, b)
             when {
                 sa != sb -> if (strongFirst) sb.compareTo(sa) else sa.compareTo(sb)
                 else -> versionOf(b).compareTo(versionOf(a)) // barabar ho to naya version pehle
@@ -59,8 +62,8 @@ object ModelAuto {
         // Hamesha sabse behtar 'max' models chuno; "tez pehle" mein bas unhi ko ulta (halka pehle) laga do.
         // Isse bilkul chhote/bekaar models nahi chunte, sirf order badalta hai.
         val topStrong = cands.sortedWith(Comparator<String> { a, b ->
-            val sa = score(a)
-            val sb = score(b)
+            val sa = score(providerId, a)
+            val sb = score(providerId, b)
             if (sa != sb) sb.compareTo(sa) else versionOf(b).compareTo(versionOf(a))
         }).take(max)
         return if (strongFirst) topStrong else topStrong.sortedWith(cmp)
