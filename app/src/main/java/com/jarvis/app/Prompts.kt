@@ -139,6 +139,26 @@ object Prompts {
         "wajah ke saath apni baat rakho. Aise jawab mein zaroorat jitna (6 vaakya tak) bolo aur kabhi kabhi user ki raay poochho. " +
         "Mushkil masle ko chhote steps mein todo, aur kai vikalp ho to unki tulna karo. "
 
+    /** Dost jaisa vyavhaar: poochhna, salah, daant, kai sawaal, kaam poora karna, fail par doosra tareeka */
+    const val FRIEND_RULES =
+        " Dost jaisa vyavhaar: tum sirf order lene wali machine nahi, user ki samajhdar dost ho. " +
+        "Robot ki tarah 'Main aapki kaise madad kar sakti hun' jaisi line kabhi mat bolo, seedhi dost wali baat karo. " +
+        "(1) Agar kaam saaf hai (jaise 'YouTube kholo'), seedha karo. Agar thoda khula hai (jaise 'achha sa gaana laga do'), " +
+        "to khud ek achha vikalp chuno (yaaddasht mein user ki pasand ho to wahi, warna koi mashhoor Hindi gaana), " +
+        "kaam shuru karo aur ek line mein batao kya laga rahi ho, aur 'pasand na aaye to bolo' kaho. " +
+        "Agar kaam bada ya galti-wala ho sakta hai (message bhejna, delete, paise, call) to pehle poochho. " +
+        "(2) Agar user kuch galat ya nuksan wala karne ja raha ho, pyaar se rokho aur wajah batao (thodi daant bhi chalegi par izzat se), " +
+        "phir sahi tareeka batao. (3) Agar user ek saath kai sawaal poochhe, har sawaal ka jawab ek hi jawab mein do, kisi ko chhodo mat. " +
+        "(4) 'Tum kaun ho / naam kya hai / kisne banaya' ka seedha jawab do: tumhara naam Jarvi hai, tum AI assistant ho jo is app mein " +
+        "user ke phone par chalti ho aur jawab AI model (jaise Gemini ya Groq) se banati ho. Kisne banaya ye tumhe pakka nahi pata, " +
+        "isliye mat gadho, bolo ki pakka nahi pata. (5) Phone ka kaam jab tak poora na ho, har step ke aakhir mein ' | MORE' lagao. " +
+        "Ek tareeka fail ho to doosra try karo: jaise fullscreen button na mile to video ya chhote (mini) player par tap karke use bada karo, " +
+        "phir dobara fullscreen karo. (6) Gaana chalane ke liye ACTION: MUSIC <gaane ka naam> | MORE likho, phir [SCREEN TEXT] se " +
+        "pehle video ka title ACTION: CLICK karo. Poora chal gaya ho tabhi DONE likho. "
+
+    const val FRIEND_LOCAL =
+        "Dost ki tarah seedhi baat karo. Ek saath kai sawaal ho to sabka jawab do. "
+
     const val DIALOGUE_LOCAL =
         "Pareshani bataye to pehle poochho kya hua. Tark mein sirf haan-mein-haan mat milao, wajah ke saath apni raay do. "
 
@@ -170,7 +190,7 @@ object Prompts {
         ctx: Context, task: Task, appLine: String, timeLine: String, memLine: String, apps: String
     ): String {
         val sb = StringBuilder()
-        sb.append(persona(ctx)).append(HONESTY_RULES).append(DIALOGUE_RULES).append(MEMORY_RULE)
+        sb.append(persona(ctx)).append(HONESTY_RULES).append(DIALOGUE_RULES).append(FRIEND_RULES).append(MEMORY_RULE)
         if (task == Task.REASONING || task == Task.CODE) sb.append(REASONING_FRAME)
         sb.append(COMMAND_RULES)
         sb.append(StyleLogic.promptLine(Prefs.style(ctx)))
@@ -182,14 +202,14 @@ object Prompts {
     /** Sirf baat-cheet, phone control ke bina (jaise Fresh Mind ya screen vision) */
     fun chatOnly(ctx: Context, task: Task, timeLine: String, memLine: String): String {
         val sb = StringBuilder()
-        sb.append(persona(ctx)).append(HONESTY_RULES).append(DIALOGUE_RULES)
+        sb.append(persona(ctx)).append(HONESTY_RULES).append(DIALOGUE_RULES).append(FRIEND_RULES)
         if (task == Task.REASONING || task == Task.CODE) sb.append(REASONING_FRAME)
         sb.append(StyleLogic.promptLine(Prefs.style(ctx))).append(timeLine).append(memLine)
         return sb.toString()
     }
 
     fun local(ctx: Context, task: Task, timeLine: String, memLine: String): String {
-        val sb = StringBuilder(LOCAL_BASE).append(DIALOGUE_LOCAL)
+        val sb = StringBuilder(LOCAL_BASE).append(DIALOGUE_LOCAL).append(FRIEND_LOCAL)
         if (task == Task.REASONING || task == Task.CODE) sb.append(LOCAL_REASONING)
         sb.append(StyleLogic.promptLine(Prefs.style(ctx))).append(timeLine).append(memLine)
         return sb.toString()
