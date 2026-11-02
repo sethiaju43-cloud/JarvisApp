@@ -420,6 +420,13 @@ class FloatingService : Service() {
         startListening(true)
     }
 
+    /** Baat-cheet mode ON ho to Jarvi bolne ke baad khud sunegi (command ke jawab ke baad bhi) */
+    private fun armAutoListen() {
+        if (Prefs.bool(applicationContext, "voice_chat_mode", false) && tts != null && ttsReady) {
+            wantListenAfter = true
+        }
+    }
+
     private fun stopSpeaking() {
         wantListenAfter = false
         bargeIn.stop()
@@ -642,7 +649,10 @@ class FloatingService : Service() {
                 }
                 val result = pr
                 handler.post {
-                    if (result != null) reply(result) else routeSpoken(text)
+                    if (result != null) {
+                        armAutoListen()
+                        reply(result)
+                    } else routeSpoken(text)
                 }
             }.start()
             return
@@ -661,7 +671,10 @@ class FloatingService : Service() {
             }
             val cr = cmdReply
             handler.post {
-                if (cr != null) reply(cr) else askBrain(text)
+                if (cr != null) {
+                    armAutoListen()
+                    reply(cr)
+                } else askBrain(text)
             }
         }.start()
     }
