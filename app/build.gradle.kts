@@ -71,7 +71,8 @@ dependencies {
     implementation("com.alphacephei:vosk-android:0.3.75")
     implementation("net.java.dev.jna:jna:5.18.1@aar")
 
-    // Local offline AI
+    // Local offline AI (LiteRT-LM ka Kotlin API Flow use karta hai)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("com.google.ai.edge.litertlm:litertlm-android:$litertLmVersion")
 
     // Unit tests
