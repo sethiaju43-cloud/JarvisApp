@@ -63,6 +63,7 @@
         <activity android:name=".HistoryActivity" android:exported="false" />
         <activity android:name=".ModelsActivity" android:exported="false" />
         <activity android:name=".ProvidersActivity" android:exported="false" />
+        <activity android:name=".VoiceStudioActivity" android:exported="false" />
 
         <service
             android:name=".ModelDownloadService"
