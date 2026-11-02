@@ -90,8 +90,18 @@ object ProviderRegistry {
 
     fun setAuto(ctx: Context, id: String, v: Boolean) = Prefs.setBool(ctx, "prov_${id}_auto", v)
 
-    /** true = tagda model pehle, false = tez/halka pehle (sab providers ke liye ek hi setting) */
-    fun strongFirst(ctx: Context): Boolean = Prefs.str(ctx, "model_order", "strong") != "fast"
+    /** UI button ke liye: false sirf tab jab user ne "tez pehle" chuna ho ('smart' ko tagda-pehle jaisa dikhata hai) */
+    fun strongFirst(ctx: Context): Boolean = Prefs.str(ctx, "model_order", "smart") != "fast"
+
+    /**
+     * Task ke hisaab se order. Default 'smart': seedhi baat-cheet (CHAT) par tez model pehle (jaldi jawab),
+     * baaki (phone kaam, mushkil sawaal, code...) par tagda model pehle.
+     */
+    fun strongFor(ctx: Context, task: Task?): Boolean = when (Prefs.str(ctx, "model_order", "smart")) {
+        "strong" -> true
+        "fast" -> false
+        else -> task != Task.CHAT
+    }
 
     fun setStrongFirst(ctx: Context, v: Boolean) = Prefs.setStr(ctx, "model_order", if (v) "strong" else "fast")
 
@@ -137,13 +147,13 @@ object ProviderRegistry {
      * - Automatic ON ho to provider ki list se khud chuni hui line (abhi list na aayi ho to preset).
      * - Warna Model box ka ek naam pehle, phir preset ke baaki.
      */
-    fun chain(ctx: Context, id: String): List<String> {
+    fun chain(ctx: Context, id: String, strong: Boolean = strongFirst(ctx)): List<String> {
         val p = preset(id) ?: return emptyList()
         val raw = Prefs.str(ctx, "prov_${id}_model", "")
         if (raw.contains(',') || raw.contains(';')) return ModelChain.parse(raw, emptyList())
         if (auto(ctx, id)) {
             refreshIfStale(ctx, id)
-            val ranked = ModelAuto.order(id, found(ctx, id), strongFirst(ctx), 3)
+            val ranked = ModelAuto.order(id, found(ctx, id), strong, 3)
             return if (ranked.isNotEmpty()) ranked else p.defaultModels
         }
         return ModelChain.parse(model(ctx, id), p.defaultModels)
