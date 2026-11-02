@@ -116,6 +116,44 @@ object ProviderRegistry {
         Prefs.setStr(ctx, "prov_${id}_found_at", System.currentTimeMillis().toString())
     }
 
+    /** Jo model "nahi mila (404)" bola, use 24 ghante tak chain se hata do (list mein dikhta ho tab bhi) */
+    fun markDead(ctx: Context, id: String, model: String) {
+        val now = System.currentTimeMillis()
+        val keep = deadEntries(ctx, id).filter { it.first != model }
+        val all = keep + Pair(model, now)
+        Prefs.setStr(ctx, "prov_${id}_dead", all.joinToString(",") { it.first + "@" + it.second })
+    }
+
+    private fun deadEntries(ctx: Context, id: String): List<Pair<String, Long>> {
+        val now = System.currentTimeMillis()
+        return Prefs.str(ctx, "prov_${id}_dead", "").split(',').mapNotNull {
+            val i = it.lastIndexOf('@')
+            if (i <= 0) null else {
+                val t = it.substring(i + 1).toLongOrNull()
+                if (t == null || now - t > FOUND_MAX_AGE) null else Pair(it.substring(0, i), t)
+            }
+        }
+    }
+
+    fun deadModels(ctx: Context, id: String): Set<String> = deadEntries(ctx, id).map { it.first }.toSet()
+
+    /** Chhota test: pehle model ko ek chhota sawaal bhejo, kitni der lagi aur kya error aaya batao */
+    fun ping(ctx: Context, id: String): String {
+        val p = preset(id) ?: return "Provider nahi mila"
+        val m = chain(ctx, id).firstOrNull() ?: return "Koi model set nahi"
+        if (!NetworkMonitor.isOnline(ctx)) return "Internet nahi hai"
+        ModelRouter.lastNetError = ""
+        val t0 = System.currentTimeMillis()
+        val sys = "Reply in one short word."
+        val o = OnlineBackend(ctx, p, m).call(
+            RouterRequest(Task.CHAT, listOf(Pair("user", "Hi, ek shabd mein jawab do: haan")), sys, sys, false, null, "")
+        )
+        val sec = String.format(java.util.Locale.US, "%.1f", (System.currentTimeMillis() - t0) / 1000.0)
+        if (o.ok) return "✅ " + m + ": chal raha hai (" + sec + " sec)"
+        val net = if (o.kind == ErrKind.NETWORK && ModelRouter.lastNetError.isNotBlank()) " [" + ModelRouter.lastNetError + "]" else ""
+        return "❌ " + m + ": " + friendly(o.kind, o.text) + net + " (" + sec + " sec)"
+    }
+
     /** Model nahi mila (404) jaisa kuch hua: list purani ho gayi, jaldi dobara mangao */
     fun invalidateFound(ctx: Context, id: String) {
         Prefs.setStr(ctx, "prov_${id}_found_at", "0")
@@ -153,7 +191,8 @@ object ProviderRegistry {
         if (raw.contains(',') || raw.contains(';')) return ModelChain.parse(raw, emptyList())
         if (auto(ctx, id)) {
             refreshIfStale(ctx, id)
-            val ranked = ModelAuto.order(id, found(ctx, id), strong, 3)
+            val dead = deadModels(ctx, id)
+            val ranked = ModelAuto.order(id, found(ctx, id).filter { it !in dead }, strong, 4)
             return if (ranked.isNotEmpty()) ranked else p.defaultModels
         }
         return ModelChain.parse(model(ctx, id), p.defaultModels)
@@ -275,7 +314,8 @@ class OnlineBackend(
         }
         val o = if (p.kind == ProviderKind.GEMINI) callGemini(req) else callOpenAi(req)
         if (!o.ok && o.kind == ErrKind.NOT_FOUND && ProviderRegistry.auto(ctx, p.id)) {
-            // Model hat gaya/naam badla: provider se nayi list mangao
+            // Model hat gaya/naam badla: 24 ghante ke liye hatao aur provider se nayi list mangao
+            ProviderRegistry.markDead(ctx, p.id, model)
             ProviderRegistry.invalidateFound(ctx, p.id)
         }
         if (!o.ok) {
