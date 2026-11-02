@@ -21,6 +21,9 @@ class ProvidersActivity : ScreenActivity() {
                 "  (badalne ke liye dabao)") {
             ProviderRegistry.setStrongFirst(c, !ProviderRegistry.strongFirst(c)); rebuild()
         })
+        container.addView(UiKit.button(c, "🎙 Natural awaaz (ladki) sunkar chuno") {
+            startActivity(Intent(c, VoiceStudioActivity::class.java))
+        })
         for (p in ProviderRegistry.presets) container.addView(providerCard(p, online))
 
         container.addView(UiKit.section(c, "🔎 Internet Search tools"))
@@ -122,6 +125,19 @@ class ProvidersActivity : ScreenActivity() {
             }.start()
         })
         card.addView(r)
+        if (hasKey) {
+            card.addView(UiKit.button(c, "🧪 Chhota test (kitni der lagi, kya error)") {
+                UiKit.toast(c, "Test ho raha hai...")
+                Thread {
+                    val m = ProviderRegistry.ping(c, p.id)
+                    runOnUiThread {
+                        AlertDialog.Builder(c).setTitle(p.name).setMessage(m)
+                            .setPositiveButton("Theek hai", null).show()
+                        rebuild()
+                    }
+                }.start()
+            })
+        }
         if (hasKey) card.addView(UiKit.button(c, "🗑 Key hatao") { ProviderRegistry.setKey(c, p.id, ""); rebuild() })
         if (p.keyUrl.isNotBlank()) card.addView(UiKit.button(c, "🔑 Key kahan milegi") { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(p.keyUrl))) })
         return card
