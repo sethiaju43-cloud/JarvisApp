@@ -24,11 +24,14 @@ class LocalBackend(private val ctx: Context, private val m: LocalModel) : Backen
         if (ruleCmd != null) return Outcome(true, ruleCmd)
         val older = req.history.dropLast(1)
         val hist = ContextTrimmer.trim(older, 1200, 12)
-        var r = LocalLlm.generate(ctx, m, req.systemLocal, hist, user, ModelRouter.onPartial)
+        var r = LocalLlm.generate(ctx, m, req.systemLocal, hist, user, ModelRouter.onPartial, ModelRouter.stopCheck)
+        // User ne "Ruko" bola: ise error mat maano (warna model kuch der "rest" par chala jata)
+        if (r.stopped) return Outcome(true, r.text)
         if (!r.ok && hist.isNotEmpty() &&
             (r.error.contains("token", true) || r.error.contains("length", true) || r.error.contains("exceed", true))
         ) {
-            r = LocalLlm.generate(ctx, m, req.systemLocal, emptyList(), user, ModelRouter.onPartial)
+            r = LocalLlm.generate(ctx, m, req.systemLocal, emptyList(), user, ModelRouter.onPartial, ModelRouter.stopCheck)
+            if (r.stopped) return Outcome(true, r.text)
         }
         return if (r.ok) Outcome(true, r.text) else Outcome(false, r.error, ErrKind.OTHER)
     }
@@ -49,6 +52,10 @@ object ModelRouter {
 
     @Volatile
     var onStatus: ((String) -> Unit)? = null
+
+    /** Abhi chal rahe sawaal ka "Ruko" check (local model ko beech mein rokne ke liye) */
+    @Volatile
+    var stopCheck: () -> Boolean = { false }
 
     /** Pichli network dikkat ka exception ka naam (sirf class ka naam, koi secret nahi). Wajah pata karne ke liye. */
     @Volatile
@@ -114,6 +121,8 @@ object ModelRouter {
     }
 
     fun complete(ctx: Context, req: RouterRequest, stop: () -> Boolean = { false }): RouteResult {
+        // Local model ko beech mein rokne ke liye "Ruko" check yahan rakho
+        stopCheck = stop
         val order = plan(ctx, req.task, req.imageB64 != null)
         if (order.isEmpty()) {
             return RouteResult(
