@@ -28,15 +28,23 @@ class ModelAutoTest {
         assertFalse(ModelAuto.isChatModel("openrouter", "openai/gpt-4o"))
     }
 
-    @Test fun strongFirstOrder() {
-        val r = ModelAuto.order("gemini", gem, true, 3)
-        assertEquals(listOf("gemini-3.8-pro", "gemini-3.8-flash", "gemini-3.5-flash-lite"), r)
+    @Test fun strongFirstOrderPutsGeminiProLast() {
+        // Gemini mein 'pro' sabse peeche (free key par aksar chalta nahi): flash, phir lite, phir pro
+        val r = ModelAuto.order("gemini", gem, true, 4)
+        assertEquals(
+            listOf("gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-pro"), r
+        )
     }
 
     @Test fun fastFirstOrder() {
         val r = ModelAuto.order("gemini", gem, false, 3)
-        // Wahi top-3 (pro, flash, 3.5-lite), bas halka pehle
-        assertEquals(listOf("gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.8-pro"), r)
+        // Wahi behtar top-3 (flash, 3.5-lite, 3.1-lite), bas halka pehle
+        assertEquals(listOf("gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.8-flash"), r)
+    }
+
+    @Test fun proNotDemotedOnOtherProviders() {
+        val r = ModelAuto.order("groq", listOf("llama-3.1-8b-instant", "some-pro-70b"), true, 2)
+        assertEquals("some-pro-70b", r[0])
     }
 
     @Test fun maxAndDistinctAndEmpty() {
