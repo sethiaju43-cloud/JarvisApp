@@ -248,9 +248,8 @@ object Brain {
         return null
     }
 
-    /** Kai-step kaam ke beech "Send" dabane se pehle poochho */
+    /** "Send" dabane se pehle poochho (pehla step ho ya kai-step kaam ke beech, dono mein) */
     private fun confirmSendClick(reply: String, steps: List<String>): String? {
-        if (steps.isEmpty()) return null
         val ai = reply.indexOf("ACTION:")
         if (ai < 0 || reply.indexOf("OPEN:") >= 0) return null
         val line = reply.substring(ai + 7).lines().first().trim()
