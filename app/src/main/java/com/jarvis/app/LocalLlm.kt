@@ -13,6 +13,7 @@ import com.google.ai.edge.litertlm.MessageCallback
 import com.google.ai.edge.litertlm.SamplerConfig
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Phone par chalne wala local (offline) AI. Ek samay mein sirf EK model memory mein.
@@ -20,7 +21,8 @@ import java.util.concurrent.TimeUnit
  */
 object LocalLlm {
 
-    class Result(val ok: Boolean, val text: String, val error: String = "")
+    /** stopped = user ne "Ruko" bola aur jawab beech mein roka gaya (text mein ab tak ka hissa) */
+    class Result(val ok: Boolean, val text: String, val error: String = "", val stopped: Boolean = false)
 
     private val lock = Any()
     private var engine: Engine? = null
@@ -122,8 +124,25 @@ object LocalLlm {
     }
 
     /**
+     * Chalte hue jawab ko rokne ki koshish. LiteRT-LM ke Conversation mein rokne ka tareeka
+     * (cancelProcess) hota hai; naam reflection se dhundte hain taaki library ka version
+     * badalne par app compile hona band na ho.
+     */
+    private fun cancelConversation(conv: Any?) {
+        if (conv == null) return
+        for (name in listOf("cancelProcess", "cancel")) {
+            try {
+                conv.javaClass.getMethod(name).invoke(conv)
+                return
+            } catch (t: Throwable) {
+            }
+        }
+    }
+
+    /**
      * Jawab banao. onPartial streaming ke liye (thinking hata kar). Background thread par bulao.
      * history: ("user"|"model", text) - abhi ka user message ALAG se `user` mein.
+     * shouldStop: true lautaye to jawab beech mein rok diya jata hai (Result.stopped = true).
      */
     fun generate(
         ctx: Context,
@@ -131,7 +150,8 @@ object LocalLlm {
         system: String,
         history: List<Pair<String, String>>,
         user: String,
-        onPartial: ((String) -> Unit)?
+        onPartial: ((String) -> Unit)?,
+        shouldStop: () -> Boolean = { false }
     ): Result {
         val ld = load(ctx, m)
         if (!ld.ok) return ld
@@ -161,10 +181,11 @@ object LocalLlm {
             val sb = StringBuilder()
             var err: Throwable? = null
             val done = CountDownLatch(1)
+            val halted = AtomicBoolean(false)
             conv.sendMessageAsync(sendText, object : MessageCallback {
                 override fun onMessage(message: Message) {
                     sb.append(message.toString())
-                    onPartial?.invoke(ThinkStripper.strip(sb.toString()))
+                    if (!halted.get()) onPartial?.invoke(ThinkStripper.strip(sb.toString()))
                 }
 
                 override fun onDone() {
@@ -176,8 +197,33 @@ object LocalLlm {
                     done.countDown()
                 }
             })
-            // Dheeme CPU par bhi 4 minute se zyada nahi rukenge
-            val finished = done.await(240, TimeUnit.SECONDS)
+            // Dheeme CPU par bhi 4 minute se zyada nahi rukenge.
+            // Har 0.2 second par dekhte hain ki user ne "Ruko" to nahi bola.
+            val deadline = System.currentTimeMillis() + 240_000L
+            var finished = false
+            var stopped = false
+            while (true) {
+                if (done.await(200, TimeUnit.MILLISECONDS)) {
+                    finished = true
+                    break
+                }
+                if (shouldStop()) {
+                    stopped = true
+                    break
+                }
+                if (System.currentTimeMillis() >= deadline) break
+            }
+            if (stopped) {
+                halted.set(true)
+                cancelConversation(conv)
+                // Rokne ko thoda waqt do, tab tak conversation band mat karo
+                try {
+                    done.await(3, TimeUnit.SECONDS)
+                } catch (t: Throwable) {
+                }
+                val partial = ThinkStripper.strip(sb.toString())
+                return Result(true, if (partial.isBlank()) "Ruk gayi 🛑" else partial, "", true)
+            }
             val text = ThinkStripper.strip(sb.toString())
             val e = err
             return when {
