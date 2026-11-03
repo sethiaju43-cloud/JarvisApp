@@ -126,7 +126,13 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
             }
 
             override fun onResults(results: Bundle?) {
-                val t = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                val t = list?.firstOrNull()
+                // Baaki vikalp aur confidence yaad rakho (AI ko behtar samajhne mein madad)
+                if (!t.isNullOrBlank()) {
+                    val conf = results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)?.firstOrNull() ?: -1f
+                    VoiceHints.record(t, list.orEmpty().drop(1), conf)
+                }
                 finish()
                 if (t.isNullOrBlank()) cb.onError("Kuch sunai nahi diya 🥺") else cb.onFinal(t)
             }
@@ -153,6 +159,7 @@ class VoiceInput(private val ctx: Context, private val cb: Callback) {
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
         i.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
         i.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, strict)
         listening = true
         cb.onState(true)
