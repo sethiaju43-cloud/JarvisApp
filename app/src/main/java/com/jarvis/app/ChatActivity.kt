@@ -337,7 +337,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val pm = PopupMenu(this, anchor)
         pm.menu.add(0, 1, 0, "🖼 Gallery se photo")
         pm.menu.add(0, 2, 1, "📷 Camera se photo")
-        pm.menu.add(0, 3, 2, "📄 Text file (summary/rewrite)")
+        pm.menu.add(0, 3, 2, "📄 Text ya PDF file (summary/sawaal)")
         pm.setOnMenuItemClickListener { mi ->
             when (mi.itemId) {
                 1, 2 -> {
@@ -351,7 +351,7 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         camPerm.launch(Manifest.permission.CAMERA)
                     }
                 }
-                3 -> fileLauncher.launch(arrayOf("text/*", "application/json", "application/xml"))
+                3 -> fileLauncher.launch(arrayOf("text/*", "application/json", "application/xml", "application/pdf"))
             }
             true
         }
@@ -385,9 +385,24 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun attachFile(uri: Uri) {
         Thread {
+            if (Attachments.isPdf(applicationContext, uri)) {
+                val name = Attachments.displayName(applicationContext, uri)
+                val ok = NetworkMonitor.isOnline(applicationContext) &&
+                    ModelRouter.plan(applicationContext, Task.VISION, true).isNotEmpty()
+                runOnUiThread {
+                    if (!ok) {
+                        Toast.makeText(this, "PDF padhne ke liye internet aur online vision model (jaise Gemini) chahiye. Local model abhi PDF nahi padhta.", Toast.LENGTH_LONG).show()
+                    } else {
+                        pendingFile = Attachments.FileText(name, "", uri)
+                        pendingImage = null
+                        showHint("📄 " + name + " jud gayi. Dhyan: iske pehle 8 pages online AI ko bheje jayenge. Sawaal likho (ya khali chhodo) aur ➤ dabao.")
+                    }
+                }
+                return@Thread
+            }
             val f = Attachments.readText(applicationContext, uri)
             runOnUiThread {
-                if (f == null) Toast.makeText(this, "Ye file text nahi lagti (PDF/binary abhi supported nahi)", Toast.LENGTH_LONG).show()
+                if (f == null) Toast.makeText(this, "Ye file text ya PDF nahi lagti, ye format abhi supported nahi", Toast.LENGTH_LONG).show()
                 else {
                     pendingFile = f
                     pendingImage = null
@@ -410,7 +425,11 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun work(text: String, image: String?, file: Attachments.FileText?): String {
         val ctx = applicationContext
         if (image != null) return Brain.askWithImage(ctx, text, image)
-        if (file != null) return Brain.askAboutFile(ctx, text, file.name, file.text)
+        if (file != null) {
+            val pdf = file.pdfUri
+            return if (pdf != null) PdfReader.ask(ctx, text, file.name, pdf)
+            else Brain.askAboutFile(ctx, text, file.name, file.text)
+        }
         if (Brain.hasPending()) {
             val pr = Brain.answerPending(ctx, text)
             if (pr != null) return pr
@@ -425,11 +444,13 @@ class ChatActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val low = text.lowercase().trim()
             if (low == "ruko" || low == "ruk" || low == "stop" || low == "bas" || low == "रुको" || low == "स्टॉप") {
                 Brain.requestStop()
+                PdfReader.requestStop()
                 Toast.makeText(this, "Ruk rahi hun 🛑", Toast.LENGTH_SHORT).show()
             } else {
                 // Naya message: purana jawab roko (purani awaaz/jawab ab kaam ka nahi), naya uske baad bhejo
                 queuedText = text
                 Brain.requestStop()
+                PdfReader.requestStop()
                 tts?.stop()
                 Toast.makeText(this, "Purana rok diya, ab ye le rahi hun ⏳", Toast.LENGTH_SHORT).show()
             }
