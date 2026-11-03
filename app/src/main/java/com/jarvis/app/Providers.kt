@@ -6,6 +6,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 enum class ProviderKind { GEMINI, OPENAI }
 
@@ -329,8 +331,92 @@ class OnlineBackend(
 
     private fun fail(kind: ErrKind, msg: String, retry: Int = 0) = Outcome(false, msg, kind, retry)
 
+    // ---------------- Shabd-shabd (streaming) ----------------
+    /** Chat UI jawab shabd-shabd dikhana chahe aur jawab seedha text ho (phone-kaam ya photo-kaam nahi) */
+    private fun wantStream(req: RouterRequest): Boolean =
+        ModelRouter.onPartial != null && req.task != Task.PHONE && req.task != Task.VISION
+
+    // Lamba jawab aate rehne tak call chalne do (60 second ki hadd sirf bina-streaming wale calls ke liye)
+    private val streamClient by lazy { Net.api.newBuilder().callTimeout(150, TimeUnit.SECONDS).build() }
+
+    /**
+     * SSE stream padho aur har naye shabd par UI ko batao (har 0.12 second se zyada nahi).
+     * "Ruko" dabane par network call turant kaat dete hain. Beech mein net toot jaye to ab tak ka jawab.
+     */
+    private fun streamOnce(rq: Request, parse: (String) -> String, clean: (String) -> String): Outcome {
+        val call = streamClient.newCall(rq)
+        val sb = StringBuilder()
+        val stopped = AtomicBoolean(false)
+        val finished = AtomicBoolean(false)
+        val watcher = Thread {
+            while (!finished.get()) {
+                if (ModelRouter.stopCheck()) {
+                    stopped.set(true)
+                    call.cancel()
+                    break
+                }
+                try {
+                    Thread.sleep(200)
+                } catch (e: InterruptedException) {
+                    break
+                }
+            }
+        }
+        watcher.isDaemon = true
+        watcher.start()
+        var lastEmit = 0L
+        try {
+            call.execute().use { r ->
+                if (!r.isSuccessful) {
+                    val raw = r.body?.string() ?: ""
+                    val msg = OnlineParsers.errorMessage(raw, r.code)
+                    return fail(ErrorClassifier.classify(r.code, msg), msg, OnlineParsers.retryAfter(r.header("Retry-After")))
+                }
+                val src = r.body?.source() ?: return fail(ErrKind.EMPTY, "Jawab khali aaya")
+                while (true) {
+                    val line = src.readUtf8Line() ?: break
+                    val data = OnlineStream.dataOf(line) ?: continue
+                    if (data == "[DONE]") break
+                    val err = OnlineStream.errorOf(data)
+                    if (err != null) {
+                        if (sb.isEmpty()) return fail(ErrKind.SERVER, OnlineParsers.redact(err).take(300))
+                        break
+                    }
+                    val d = parse(data)
+                    if (d.isEmpty()) continue
+                    sb.append(d)
+                    val now = System.currentTimeMillis()
+                    if (now - lastEmit >= 120) {
+                        lastEmit = now
+                        ModelRouter.onPartial?.invoke(clean(sb.toString()))
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            if (!stopped.get() && sb.isEmpty()) {
+                ModelRouter.lastNetError = e.javaClass.simpleName
+                Net.clearDnsCache()
+                return fail(ErrKind.NETWORK, "Internet ya API mein dikkat: " + OnlineParsers.redact(e.message ?: ""))
+            }
+            if (!stopped.get()) {
+                return Outcome(true, clean(sb.toString()).trim() + " ...")
+            }
+        } finally {
+            finished.set(true)
+        }
+        val text = clean(sb.toString()).trim()
+        if (stopped.get()) return Outcome(true, if (text.isBlank()) "Ruk gayi 🛑" else text)
+        return if (text.isNotBlank()) Outcome(true, text) else fail(ErrKind.EMPTY, "Jawab khali aaya")
+    }
+
     // ---------------- Gemini ----------------
-    private fun geminiOnce(key: String, body: JSONObject): Outcome {
+    private fun geminiOnce(key: String, body: JSONObject, stream: Boolean = false): Outcome {
+        if (stream) {
+            val surl = ProviderRegistry.baseUrl(ctx, p.id) + "/models/" + model + ":streamGenerateContent?alt=sse"
+            val srq = Request.Builder().url(surl).header("x-goog-api-key", key)
+                .post(body.toString().toRequestBody(json)).build()
+            return streamOnce(srq, { OnlineStream.geminiDelta(it) }, { it })
+        }
         return try {
             val url = ProviderRegistry.baseUrl(ctx, p.id) + "/models/" + model + ":generateContent"
             val rq = Request.Builder().url(url).header("x-goog-api-key", key)
@@ -353,10 +439,10 @@ class OnlineBackend(
         }
     }
 
-    private fun geminiCall(key: String, body: JSONObject): Outcome {
+    private fun geminiCall(key: String, body: JSONObject, stream: Boolean = false): Outcome {
         var cur = body
         for (round in 0..1) {
-            val r = geminiOnce(key, cur)
+            val r = geminiOnce(key, cur, stream)
             if (r.kind == ErrKind.BAD_REQUEST && cur.has("generationConfig")) {
                 val plain = JSONObject(cur.toString())
                 plain.remove("generationConfig")
@@ -365,7 +451,7 @@ class OnlineBackend(
             }
             return r
         }
-        return geminiOnce(key, cur)
+        return geminiOnce(key, cur, stream)
     }
 
     private fun callGemini(req: RouterRequest): Outcome {
@@ -380,7 +466,7 @@ class OnlineBackend(
                 r.kind == ErrKind.NOT_FOUND
             ) return r
         }
-        val r = geminiCall(key, OnlineParsers.buildGeminiBody(hist, req.systemOnline, false, req.imageB64))
+        val r = geminiCall(key, OnlineParsers.buildGeminiBody(hist, req.systemOnline, false, req.imageB64), wantStream(req))
         if (r.ok) {
             return Outcome(true, r.text, ErrKind.NONE, 0, emptyList(), false,
                 if (req.needSearch) "search nahi hua" else "")
@@ -389,6 +475,21 @@ class OnlineBackend(
     }
 
     // ---------------- OpenAI-compatible ----------------
+    private fun openAiStream(
+        base: String, key: String, sys: String, hist: List<Pair<String, String>>, image: String?
+    ): Outcome {
+        val body = JSONObject()
+            .put("model", model)
+            .put("messages", OnlineParsers.buildOpenAiMessages(sys, hist, image))
+            .put("temperature", 0.7)
+            .put("stream", true)
+        val rb = Request.Builder().url("$base/chat/completions")
+            .header("Accept", "text/event-stream")
+            .post(body.toString().toRequestBody(json))
+        if (key.isNotBlank()) rb.header("Authorization", "Bearer $key")
+        return streamOnce(rb.build(), { OnlineStream.openAiDelta(it) }, { ThinkStripper.strip(it) })
+    }
+
     private fun callOpenAi(req: RouterRequest): Outcome {
         val base = ProviderRegistry.baseUrl(ctx, p.id)
         if (!Net.isHttps(base)) return fail(ErrKind.BAD_REQUEST, "Sirf https:// URL allowed hai")
@@ -413,6 +514,12 @@ class OnlineBackend(
             } else {
                 note = sr.error.ifBlank { "search nahi hua" }
             }
+        }
+        if (wantStream(req)) {
+            val o = openAiStream(base, key, sys, hist, req.imageB64)
+            if (o.ok) return Outcome(true, o.text, ErrKind.NONE, 0, sources, searchUsed, note)
+            // Kuch providers streaming nahi samajhte (BAD_REQUEST): tab bina-streaming tareeke se phir koshish
+            if (o.kind != ErrKind.BAD_REQUEST) return o
         }
         return try {
             val body = JSONObject()
