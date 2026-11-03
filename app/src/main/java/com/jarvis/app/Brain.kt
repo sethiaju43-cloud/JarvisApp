@@ -455,6 +455,42 @@ object Brain {
         }
     }
 
+    // ---------- Bina AI ke seedhe kaam (API bachane ke liye) ----------
+    // Sirf wahi aam kaam jinka matlab rules se saaf hota hai. Gaana/photo/screen-tap AI ke paas hi jaate hain.
+    private val ruleOkPrefixes = listOf(
+        "ACTION: FLASH", "ACTION: VOLUME", "ACTION: SETTINGS", "ACTION: BATTERY", "ACTION: NOTIFICATIONS",
+        "ACTION: LOCK", "ACTION: SCREENSHOT", "ACTION: ALARM", "ACTION: TIMER", "ACTION: CALL"
+    )
+
+    // Sawaal jaisa ya screen par tap/likhne jaisa lage to rules mat lagao, AI samjhe
+    private val ruleBlockWords = listOf(
+        "?", "kaise", "kyun", "kyu", "why", "how", "what", "matlab", "meaning", "kaun", "explain", "samjha",
+        "hota", "hoti", "click", "tap", "dabao", "button", "video", "select", "reply", "likho", "type",
+        "क्लिक", "टैप", "दबाओ", "वीडियो", "लिखो", "कैसे", "क्यों"
+    )
+
+    /** Chhota aam phone-kaam jo rules se ho sakta hai (AI ki zaroorat nahi), warna null */
+    private fun ruleCommand(userText: String): String? {
+        if (hasAny(userText, ruleBlockWords)) return null
+        val cmd = OfflineCommands.parse(userText) ?: return null
+        return if (ruleOkPrefixes.any { cmd.startsWith(it) }) cmd else null
+    }
+
+    /** Rules se bana kaam seedha chalao (call ho ya awaaz par shak ho to pehle poochho) */
+    private fun runRule(context: Context, userText: String, cmd: String): String {
+        val q = if (confirmOn(context)) {
+            confirmQuestion(cmd) ?: VoiceHints.doubtQuestion(userText, true)
+        } else null
+        val res = if (q != null) {
+            setPending(cmd)
+            q
+        } else {
+            PhoneActions.interpret(context, cmd)
+        }
+        noteLocal(context, userText, res)
+        return res
+    }
+
     private fun rememberExplicit(context: Context, fact: String): String {
         return when (MemoryStore.add(context, fact, "fact", auto = false)) {
             MemoryStore.AddResult.SAVED -> "Theek hai, yaad rakh liya 📝"
@@ -483,6 +519,13 @@ object Brain {
             noteLocal(context, userText, r)
             return r
         }
+
+        // "API kitni use hui": ginti seedha batao (AI ko bhejne ki zaroorat nahi)
+        if (UsageStats.isUsageQuestion(userText)) return UsageStats.report(context)
+
+        // Aam chhote phone-kaam (torch, volume, alarm, call...) bina AI ke seedha: API ki bachat
+        val ruleCmd = ruleCommand(userText)
+        if (ruleCmd != null) return runRule(context, userText, ruleCmd)
 
         val mem = snapshotMemory(context)
         val svc = JarvisAccessibilityService.instance
@@ -561,14 +604,19 @@ object Brain {
             searchQ = cp.user.take(200)
         }
 
-        val apps = CommandHandler.installedApps(context)
+        // Apps ki lambi list sirf tab bhejo jab kaam app kholne/chalane jaisa ho (tokens bachte hain)
         val names = StringBuilder()
-        var count = 0
-        for (a in apps) {
-            if (count >= 250) break
-            if (count > 0) names.append(", ")
-            names.append(a.first)
-            count++
+        if (task == Task.PHONE || ActionWords.any(userText)) {
+            val apps = CommandHandler.installedApps(context)
+            var count = 0
+            for (a in apps) {
+                if (count >= 250) break
+                if (count > 0) names.append(", ")
+                names.append(a.first)
+                count++
+            }
+        } else {
+            names.append("(is sawaal mein zaroorat nahi)")
         }
         val memLine = MemoryStore.contextLine(context, userText) + PastChats.line(context, userText) +
             VoiceHints.line(context, userText)
@@ -596,7 +644,7 @@ object Brain {
         var failed = false
         var guard = 0
         var failStreak = 0
-        while (guard < 16) {
+        while (guard < 12) {
             guard++
             if (stopFlag) {
                 finalText = "Ruk gayi 🛑"
@@ -638,7 +686,7 @@ object Brain {
             val stepFailed = res.contains("😕")
             if (stepFailed) failStreak++ else failStreak = 0
             val autoRetry = stepFailed && !more && failStreak <= 2
-            if ((!more && !autoRetry) || steps.size >= 12 ||
+            if ((!more && !autoRetry) || steps.size >= 10 ||
                 res.startsWith("Accessibility atak") || res.startsWith("Pehle Permissions")
             ) break
 
@@ -647,7 +695,7 @@ object Brain {
             val stx = if (s2 != null && Prefs.screenToAi(context)) s2.readScreenText() else ""
             val agentMsg = "[AGENT] Poora kaam jo user ne bola: " + userText +
                 "\nAbhi tak ho gaya: " + steps.joinToString(" | ") +
-                "\n\n[SCREEN TEXT]\n" + (if (stx.isBlank()) "(khali)" else stx) +
+                "\n\n[SCREEN TEXT]\n" + (if (stx.isBlank()) "(khali)" else stx.take(2500)) +
                 "\n\nAgar pichla step fail hua (😕) to ek baar doosre tareeke se try karo ya agle kaam par badho. " +
                 "Agar kaam abhi baaki hai to agla sirf ek kaam ek line mein likho " +
                 "(OPEN: ya ACTION: ...). Agar uske baad bhi kaam baaki rahega to line ke aakhir mein " +
