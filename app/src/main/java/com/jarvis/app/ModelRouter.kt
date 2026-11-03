@@ -123,7 +123,8 @@ object ModelRouter {
     fun complete(ctx: Context, req: RouterRequest, stop: () -> Boolean = { false }): RouteResult {
         // Local model ko beech mein rokne ke liye "Ruko" check yahan rakho
         stopCheck = stop
-        val order = plan(ctx, req.task, req.imageB64 != null)
+        // Har asli online request ginti mein aati hai (UsageStats)
+        val order = plan(ctx, req.task, req.imageB64 != null).map { CountingBackend(ctx, it) }
         if (order.isEmpty()) {
             return RouteResult(
                 false, "", null, emptyList(), ErrKind.NONE,
