@@ -10,7 +10,8 @@ object Attachments {
 
     private const val MAX_FILE_BYTES = 1_000_000
 
-    class FileText(val name: String, val text: String)
+    /** pdfUri null nahi hai to ye PDF hai: text nahi, PdfReader se pages padhe jayenge */
+    class FileText(val name: String, val text: String, val pdfUri: Uri? = null)
 
     fun displayName(ctx: Context, uri: Uri): String {
         try {
@@ -26,7 +27,17 @@ object Attachments {
         return uri.lastPathSegment ?: "file"
     }
 
-    /** Text file padho (1 MB tak). Binary/PDF ho to null (abhi PDF support pending hai). */
+    /** Chuni hui file PDF hai? (type ya naam se pehchano) */
+    fun isPdf(ctx: Context, uri: Uri): Boolean {
+        return try {
+            ctx.contentResolver.getType(uri) == "application/pdf" ||
+                displayName(ctx, uri).endsWith(".pdf", ignoreCase = true)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Text file padho (1 MB tak). Binary ho to null. PDF ke liye PdfReader hai. */
     fun readText(ctx: Context, uri: Uri): FileText? {
         return try {
             val name = displayName(ctx, uri)
