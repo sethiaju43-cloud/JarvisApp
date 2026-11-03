@@ -570,7 +570,8 @@ object Brain {
             names.append(a.first)
             count++
         }
-        val memLine = MemoryStore.contextLine(context, userText) + PastChats.line(context, userText)
+        val memLine = MemoryStore.contextLine(context, userText) + PastChats.line(context, userText) +
+            VoiceHints.line(context, userText)
         val sysOnline = Prompts.online(context, task, appLine, timeLine, memLine, names.toString())
         val sysLocal = Prompts.local(context, task, timeLine, memLine)
 
@@ -617,6 +618,7 @@ object Brain {
             val cleaned = fixAlarmTime(cur.replace(moreRegex, "").trim(), userText)
             if (confirmOn(context)) {
                 val q = confirmQuestion(cleaned) ?: confirmSendClick(cleaned, steps)
+                    ?: VoiceHints.doubtQuestion(userText, steps.isEmpty())
                 if (q != null) {
                     setPending(cleaned)
                     finalText = q
