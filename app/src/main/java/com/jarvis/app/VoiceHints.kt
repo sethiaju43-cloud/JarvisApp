@@ -45,10 +45,9 @@ object VoiceHints {
     }
 
     private const val EASE =
-        " [SUNNE KI SAHULAT] User ki boli mein galat ya mile-jule shabd ho sakte hain (kshetra ka asar, " +
-            "Hindi/Odia/English ka mel) aur awaaz pehchaan galat likh sakti hai. Jis bhasha mein user bole ya likhe " +
-            "usi mein jawab do. Matlab pakka na ho to phone-kaam (call, SMS, app, setting) mat karo, ek chhota " +
-            "sawaal poochho. Galat shabd par user ko sharminda mat karo. "
+        " [SUNNE KI SAHULAT] User ki boli mein galat ya mile-jule shabd ho sakte hain aur awaaz pehchaan " +
+            "galat likh sakti hai. Jis bhasha mein user bole usi mein jawab do. Matlab pakka na ho to " +
+            "phone-kaam mat karo, ek chhota sawaal poochho. "
 
     /** Prompt mein jodne wali line: sahulat + (agar hon to) awaaz pehchaan ke vikalp */
     fun lineFor(userText: String, now: Long = System.currentTimeMillis()): String {
