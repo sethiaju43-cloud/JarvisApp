@@ -22,12 +22,14 @@ object VoiceHelper {
     }
 
     /**
-     * Kis bhasha ki awaaz mein bolna hai: "hi" ya "en".
-     * Jawab mein Hindi akshar (देवनागरी) ho to hamesha "hi", warna Settings ki Language ke hisaab se.
+     * Kis bhasha ki awaaz mein bolna hai: "hi", "en" ya "or" (Odia).
+     * Jawab mein Hindi akshar (देवनागरी) ho to "hi", Odia akshar ho to "or",
+     * warna Settings ki Language ke hisaab se (Odia chuni ho par jawab Roman mein ho to Hindi awaaz).
      */
     fun speakLang(ctx: Context, text: String): String {
         for (c in text) {
             if (c in 'ऀ'..'ॿ') return "hi"
+            if (c in '\u0B00'..'\u0B7F') return "or"
         }
         val lang = ctx.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
             .getString("lang", "hi-IN") ?: "hi-IN"
@@ -106,7 +108,11 @@ object VoiceHelper {
             }
         }
         if (!ok) {
-            val want = if (lang == "en") Locale("en", "IN") else Locale("hi", "IN")
+            val want = when (lang) {
+                "en" -> Locale("en", "IN")
+                "or" -> Locale("or", "IN")
+                else -> Locale("hi", "IN")
+            }
             val r = tts.setLanguage(want)
             ok = !(r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED)
             if (!ok) {
