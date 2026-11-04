@@ -545,6 +545,9 @@ class FloatingService : Service() {
                     calm()
                     say("Kuch sunai nahi diya jaan 🥺", 2500L)
                 } else {
+                    // Baaki vikalp aur confidence yaad rakho (AI ko behtar samajhne mein madad)
+                    val conf = results?.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)?.firstOrNull() ?: -1f
+                    VoiceHints.record(text, list.orEmpty().drop(1), conf)
                     handleSpoken(text)
                 }
             }
@@ -556,6 +559,7 @@ class FloatingService : Service() {
             RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
         )
         i.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
+        i.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
         i.putExtra(
             RecognizerIntent.EXTRA_PREFER_OFFLINE,
             Prefs.voiceOffline(applicationContext) || !NetworkMonitor.isOnline(applicationContext)
