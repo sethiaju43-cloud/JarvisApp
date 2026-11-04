@@ -65,10 +65,20 @@ class SettingsActivity : ScreenActivity() {
         val rgLang = RadioGroup(c)
         val rbHi = RadioButton(c).apply { text = "Hindi / Hinglish"; id = 501; setTextColor(ContextCompat.getColor(c, R.color.text_white)) }
         val rbEn = RadioButton(c).apply { text = "English"; id = 502; setTextColor(ContextCompat.getColor(c, R.color.text_white)) }
-        rgLang.addView(rbHi); rgLang.addView(rbEn)
-        if (sp.getString("lang", "hi-IN") == "en-IN") rbEn.isChecked = true else rbHi.isChecked = true
+        val rbOr = RadioButton(c).apply { text = "Odia (\u0B13\u0B21\u0B3C\u0B3F\u0B06), internet chahiye"; id = 503; setTextColor(ContextCompat.getColor(c, R.color.text_white)) }
+        rgLang.addView(rbHi); rgLang.addView(rbEn); rgLang.addView(rbOr)
+        when (sp.getString("lang", "hi-IN")) {
+            "en-IN" -> rbEn.isChecked = true
+            "or-IN" -> rbOr.isChecked = true
+            else -> rbHi.isChecked = true
+        }
         rgLang.setOnCheckedChangeListener { _, id ->
-            sp.edit().putString("lang", if (id == 502) "en-IN" else "hi-IN").apply()
+            val picked = when (id) {
+                502 -> "en-IN"
+                503 -> "or-IN"
+                else -> "hi-IN"
+            }
+            sp.edit().putString("lang", picked).apply()
             refreshVoiceInfo()
             testVoice()
         }
@@ -219,9 +229,13 @@ class SettingsActivity : ScreenActivity() {
         val name = if (lang == "en") "English" else "Hindi"
         val st = VoiceHelper.voiceStats(t, lang)
         val how = "Zyada awaaz ke liye phone Settings → Text-to-speech → Google engine mein $name voice data download karo."
-        v.text = if (st.first + st.second > 0)
+        val odiaNote = if (Prefs.sp(this).getString("lang", "hi-IN") == "or-IN")
+            "Odia chuni hai: mic Odia sunega (internet chahiye, offline mic sirf Hindi/English). " +
+                "Jawab Odia akshar mein ho to Odia awaaz (agar phone mein ho) mein bolega, warna theek se nahi bol payega. "
+        else ""
+        v.text = odiaNote + (if (st.first + st.second > 0)
             "$name awaaz: " + st.first + " offline (internet ke bina) + " + st.second + " online (internet chahiye). " + how
-        else "$name awaaz nahi mili. $how"
+        else "$name awaaz nahi mili. $how")
     }
 
     override fun onDestroy() {
