@@ -25,6 +25,102 @@ class ProviderPreset(
 
 class CheckResult(val ok: Boolean, val models: List<String>, val message: String)
 
+/** Ek AI platform: naam, uska OpenAI-compatible link, aur key ki shuruaat (prefix) se pehchaan */
+class Platform(
+    val name: String,
+    val base: String,
+    val prefixes: List<String> = emptyList(),
+    val tryForUnknown: Boolean = false,
+    val vision: Boolean = false
+)
+
+class Detected(val platform: Platform, val models: List<String>)
+
+/**
+ * Sirf API key dekhkar platform pehchano.
+ * 1) Key ki shuruaat se (gsk_ = Groq, sk-or- = OpenRouter, AIza = Gemini ...) sahi platform chunta hai.
+ * 2) Shuruaat pakki na ho to chhoti list ke platforms ek saath aazmata hai (sirf pakke, official links).
+ * Key sirf in fixed official links par jati hai, kisi aur site par kabhi nahi.
+ */
+object PlatformDetect {
+
+    val all: List<Platform> = listOf(
+        Platform("Groq", "https://api.groq.com/openai/v1", listOf("gsk_")),
+        Platform("OpenRouter", "https://openrouter.ai/api/v1", listOf("sk-or-")),
+        Platform("Cerebras", "https://api.cerebras.ai/v1", listOf("csk-")),
+        Platform("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", listOf("AIza"), vision = true),
+        Platform("xAI Grok", "https://api.x.ai/v1", listOf("xai-")),
+        Platform("NVIDIA", "https://integrate.api.nvidia.com/v1", listOf("nvapi-")),
+        Platform("Fireworks", "https://api.fireworks.ai/inference/v1", listOf("fw_")),
+        Platform("Together AI", "https://api.together.xyz/v1", listOf("tgp_v1_"), tryForUnknown = true),
+        Platform("Anthropic Claude", "https://api.anthropic.com/v1", listOf("sk-ant-"), vision = true),
+        Platform("OpenAI", "https://api.openai.com/v1", listOf("sk-proj-", "sk-svcacct-", "sk-admin-", "sk-"), vision = true),
+        Platform("DeepSeek", "https://api.deepseek.com/v1", listOf("sk-")),
+        Platform("Moonshot Kimi", "https://api.moonshot.ai/v1", listOf("sk-")),
+        Platform("Mistral", "https://api.mistral.ai/v1", tryForUnknown = true),
+        Platform("SambaNova", "https://api.sambanova.ai/v1", tryForUnknown = true),
+        Platform("DeepInfra", "https://api.deepinfra.com/v1/openai", tryForUnknown = true),
+        Platform("Hyperbolic", "https://api.hyperbolic.xyz/v1", tryForUnknown = true),
+        Platform("Cohere", "https://api.cohere.ai/compatibility/v1", tryForUnknown = true)
+    )
+
+    /** Is key ke liye kaun kaun se platform aazmane hain */
+    fun candidates(key: String): List<Platform> {
+        val k = key.trim()
+        val matched = all.filter { p -> p.prefixes.any { k.startsWith(it) } }
+        // Lambi (4+ akshar) shuruaat mile to wahi pakka platform hai
+        val specific = matched.filter { p -> p.prefixes.any { k.startsWith(it) && it.length >= 4 } }
+        if (specific.isNotEmpty()) return specific
+        if (matched.isNotEmpty()) return matched
+        return all.filter { it.tryForUnknown }
+    }
+
+    private val probeClient by lazy {
+        Net.api.newBuilder()
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(8, TimeUnit.SECONDS)
+            .callTimeout(9, TimeUnit.SECONDS)
+            .build()
+    }
+
+    /** Platform se models ki list mango. null = chala nahi (key galat ya ye platform nahi) */
+    fun probe(p: Platform, key: String): List<String>? {
+        return try {
+            val rb = Request.Builder().url(p.base + "/models").header("Authorization", "Bearer " + key)
+            if (p.base.contains("anthropic.com")) {
+                rb.header("x-api-key", key).header("anthropic-version", "2023-06-01")
+            }
+            probeClient.newCall(rb.get().build()).execute().use { r ->
+                if (!r.isSuccessful) return null
+                val models = OnlineParsers.parseOpenAiModels(r.body?.string() ?: "")
+                if (models.isEmpty()) null else models
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Saare candidates ek saath aazmao (parallel), pehla jo chal gaya wahi platform */
+    fun detect(key: String): Detected? {
+        val cands = candidates(key)
+        if (cands.isEmpty()) return null
+        val results = arrayOfNulls<Detected>(cands.size)
+        val threads = cands.mapIndexed { i, p ->
+            Thread {
+                val m = probe(p, key)
+                if (m != null) results[i] = Detected(p, m)
+            }.also { it.start() }
+        }
+        for (t in threads) {
+            try {
+                t.join(10_000)
+            } catch (e: InterruptedException) {
+            }
+        }
+        return results.firstOrNull { it != null }
+    }
+}
+
 /** Online AI providers ki list aur unki settings. Gemini zaroori NAHI hai: koi bhi ek provider chalega. */
 object ProviderRegistry {
 
@@ -65,10 +161,85 @@ object ProviderRegistry {
         ProviderPreset(
             "custom", "Custom / apna backend (OpenAI-compatible)", ProviderKind.OPENAI, "",
             emptyList(),
-            "Kisi bhi OpenAI-compatible server ka link + key daalo, model app khud pakad lega (naam likhna zaroori nahi).",
+            "Kisi bhi platform ki key yahan paste karo: platform, link aur model app khud pakad lega. Apna server ho to link bhi daal sakte ho.",
+            "", custom = true
+        ),
+        ProviderPreset(
+            "custom2", "Custom 2 (koi bhi platform)", ProviderKind.OPENAI, "", emptyList(),
+            "Kisi bhi platform ki key paste karo: platform, link aur model app khud pakad lega.",
+            "", custom = true
+        ),
+        ProviderPreset(
+            "custom3", "Custom 3 (koi bhi platform)", ProviderKind.OPENAI, "", emptyList(),
+            "Kisi bhi platform ki key paste karo: platform, link aur model app khud pakad lega.",
+            "", custom = true
+        ),
+        ProviderPreset(
+            "custom4", "Custom 4 (koi bhi platform)", ProviderKind.OPENAI, "", emptyList(),
+            "Kisi bhi platform ki key paste karo: platform, link aur model app khud pakad lega.",
             "", custom = true
         )
     )
+
+    // ---- Kaam ka batwara (role): ye provider kis kaam ke liye ----
+    const val ROLE_BOTH = "both"
+    const val ROLE_FAST = "fast"
+    const val ROLE_HARD = "hard"
+
+    fun role(ctx: Context, id: String): String = Prefs.str(ctx, "prov_${id}_role", ROLE_BOTH)
+
+    fun setRole(ctx: Context, id: String, r: String) = Prefs.setStr(ctx, "prov_${id}_role", r)
+
+    fun nextRole(r: String): String = when (r) {
+        ROLE_BOTH -> ROLE_FAST
+        ROLE_FAST -> ROLE_HARD
+        else -> ROLE_BOTH
+    }
+
+    fun roleLabel(r: String): String = when (r) {
+        ROLE_FAST -> "Sirf roz ki tez baat (chhote kaam)"
+        ROLE_HARD -> "Sirf mushkil sawaal (tagda kaam)"
+        else -> "Dono (app khud tay kare)"
+    }
+
+    /** light = roz ki chhoti baat-cheet. Is provider ka role us kaam ke liye theek hai? */
+    fun roleFits(ctx: Context, id: String, light: Boolean): Boolean {
+        val r = role(ctx, id)
+        return r == ROLE_BOTH || (r == ROLE_FAST && light) || (r == ROLE_HARD && !light)
+    }
+
+    // ---- Speed: har model ka asli jawab-time yaad rakho, tez wala pehle chalega ----
+    private val latency = ConcurrentHashMap<String, Long>()
+
+    fun recordLatency(ctx: Context, id: String, model: String, ms: Long) {
+        if (ms <= 0) return
+        val key = id + "|" + model
+        val old = latency[key] ?: (Prefs.str(ctx, "lat_$key", "0").toLongOrNull() ?: 0L)
+        val now = if (old <= 0) ms else (old * 7 + ms * 3) / 10
+        latency[key] = now
+        Prefs.setStr(ctx, "lat_$key", now.toString())
+    }
+
+    /** Jaana hua time (ms), warna naam se andaza: chhota model = kam time */
+    fun speedMs(ctx: Context, id: String, model: String): Long {
+        val key = id + "|" + model
+        val known = latency[key] ?: (Prefs.str(ctx, "lat_$key", "0").toLongOrNull() ?: 0L)
+        if (known > 0) return known
+        return 300L + 250L * ModelRank.score(model)
+    }
+
+    // ---- Platform ka naam (custom slots mein khud pehchana hua) ----
+    fun platformName(ctx: Context, id: String): String = Prefs.str(ctx, "prov_${id}_plat", "")
+
+    /** Screen par aur router ke label mein dikhne wala naam */
+    fun title(ctx: Context, p: ProviderPreset): String {
+        if (!p.custom) return p.name.substringBefore(" (")
+        val plat = platformName(ctx, p.id)
+        if (plat.isNotBlank()) return plat
+        val host = baseUrl(ctx, p.id).substringAfter("://").substringBefore('/')
+        if (host.isNotBlank()) return host
+        return p.name.substringBefore(" (")
+    }
 
     fun preset(id: String): ProviderPreset? = presets.firstOrNull { it.id == id }
 
@@ -259,9 +430,37 @@ object ProviderRegistry {
             Prefs.setStr(ctx, "prov_${id}_found", "")
             Prefs.setStr(ctx, "prov_${id}_found_at", "0")
             Prefs.setStr(ctx, "prov_${id}_dead", "")
+            Prefs.setStr(ctx, "prov_${id}_plat", "")
             lastTry.remove(id)
         }
         Prefs.setStr(ctx, "prov_${id}_base", clean)
+    }
+
+    /**
+     * Custom slot: link khali hai aur key hai to key se platform khud pehchano, link/models bhar do.
+     * null = ye kaam yahan laagu nahi (link pehle se hai ya key nahi). Network ka kaam hai, background thread par chalao.
+     */
+    fun autoDetect(ctx: Context, id: String): CheckResult? {
+        val p = preset(id) ?: return null
+        if (!p.custom) return null
+        if (baseUrl(ctx, id).isNotBlank()) return null
+        val k = key(ctx, id).trim()
+        if (k.isBlank()) return null
+        if (!NetworkMonitor.isOnline(ctx)) return CheckResult(false, emptyList(), "Internet nahi hai")
+        val d = PlatformDetect.detect(k)
+            ?: return CheckResult(
+                false, emptyList(),
+                "Is key ka platform pehchan nahi paya (key galat, ya platform meri list mein nahi). Server ka link khud daalo."
+            )
+        setBaseUrl(ctx, id, d.platform.base)
+        Prefs.setStr(ctx, "prov_${id}_plat", d.platform.name)
+        if (d.platform.vision && !Prefs.sp(ctx).contains("prov_${id}_vision")) setVision(ctx, id, true)
+        val models = d.models.map { it.removePrefix("models/") }
+        saveFound(ctx, id, models)
+        ModelRouter.health.clear(id)
+        val msg = d.platform.name + " pehchan liya, " + models.size + " models mile"
+        lastCheck[id] = "✅ $msg"
+        return CheckResult(true, models, msg)
     }
 
     fun vision(ctx: Context, id: String): Boolean =
@@ -274,6 +473,15 @@ object ProviderRegistry {
 
     fun setKey(ctx: Context, id: String, k: String) {
         if (id == "gemini") ApiKeyStore.setKey(ctx, k) else ApiKeyStore.setSecret(ctx, "prov_$id", k)
+        // Khud pehchane hue platform ki key badli (ya hati) to purana link bekaar: agli baar dobara pehchanega
+        if (preset(id)?.custom == true && platformName(ctx, id).isNotBlank()) {
+            Prefs.setStr(ctx, "prov_${id}_base", "")
+            Prefs.setStr(ctx, "prov_${id}_plat", "")
+            Prefs.setStr(ctx, "prov_${id}_found", "")
+            Prefs.setStr(ctx, "prov_${id}_found_at", "0")
+            Prefs.setStr(ctx, "prov_${id}_dead", "")
+            lastTry.remove(id)
+        }
     }
 
     /** Sirf wahi provider jinke endpoint/key sach mein set hain (fake availability nahi) */
@@ -336,6 +544,7 @@ object ProviderRegistry {
                     if (id == "openrouter") {
                         models = models.sortedByDescending { it.endsWith(":free") }
                     }
+                    if (p.custom) models = models.map { it.removePrefix("models/") }
                     saveFound(ctx, id, models)
                     if (!background) {
                         ModelRouter.health.clear(id)
@@ -374,7 +583,7 @@ class OnlineBackend(
 ) : Backend {
 
     override val id: String get() = ModelChain.key(p.id, model)
-    override val label: String get() = p.name.substringBefore(" (") + " · " + model
+    override val label: String get() = ProviderRegistry.title(ctx, p) + " · " + model
     override val isLocal: Boolean get() = false
     override val supportsVision: Boolean get() = ProviderRegistry.vision(ctx, p.id)
     override val supportsSearch: Boolean
@@ -388,7 +597,14 @@ class OnlineBackend(
             val why = h.reasonOf(p.id)
             return fail(if (why.contains("key")) ErrKind.AUTH else ErrKind.OTHER, why)
         }
+        startMs = System.currentTimeMillis()
+        firstTokenMs = -1L
         val o = if (p.kind == ProviderKind.GEMINI) callGemini(req) else callOpenAi(req)
+        if (o.ok) {
+            // Pehla shabd aane ka time (streaming), warna poora time. Tez model agli baar pehle chalega.
+            val ms = if (firstTokenMs > 0) firstTokenMs else System.currentTimeMillis() - startMs
+            ProviderRegistry.recordLatency(ctx, p.id, model, ms)
+        }
         if (!o.ok && o.kind == ErrKind.NOT_FOUND && ProviderRegistry.auto(ctx, p.id)) {
             // Model hat gaya/naam badla: 24 ghante ke liye hatao aur provider se nayi list mangao
             ProviderRegistry.markDead(ctx, p.id, model)
@@ -402,6 +618,13 @@ class OnlineBackend(
     }
 
     private val json = "application/json".toMediaType()
+
+    // Speed naapne ke liye (is request ka shuru hone ka time aur pehla shabd aane ka time)
+    @Volatile
+    private var startMs = 0L
+
+    @Volatile
+    private var firstTokenMs = -1L
 
     private fun fail(kind: ErrKind, msg: String, retry: Int = 0) = Outcome(false, msg, kind, retry)
 
@@ -458,6 +681,7 @@ class OnlineBackend(
                     }
                     val d = parse(data)
                     if (d.isEmpty()) continue
+                    if (firstTokenMs < 0) firstTokenMs = System.currentTimeMillis() - startMs
                     sb.append(d)
                     val now = System.currentTimeMillis()
                     if (now - lastEmit >= 120) {
@@ -570,7 +794,8 @@ class OnlineBackend(
         val key = ProviderRegistry.key(ctx, p.id)
         if (key.isBlank() && !p.custom) return fail(ErrKind.AUTH, p.name + " API key nahi hai")
 
-        var hist = ContextTrimmer.trim(req.history, 3500)
+        // Roz ki chhoti baat mein kam history bhejo: jawab jaldi aata hai aur quota kam lagta hai
+        var hist = ContextTrimmer.trim(req.history, if (req.task == Task.CHAT) 2000 else 3500)
         var sys = req.systemOnline
         var sources: List<Source> = emptyList()
         var searchUsed = false
