@@ -32,6 +32,10 @@ object Prefs {
     fun callJaan(ctx: Context) = bool(ctx, "call_jaan", true)
     fun searchProvider(ctx: Context) = str(ctx, "search_provider", "auto")
 
+    /** AI ka naam (user badal sakta hai). Khali ho to Jarvi. */
+    fun aiName(ctx: Context): String = str(ctx, "ai_name", "Jarvi").trim().ifBlank { "Jarvi" }
+    fun setAiName(ctx: Context, v: String) = setStr(ctx, "ai_name", v.trim())
+
     fun style(ctx: Context): ReplyStyle = ReplyStyle(
         str(ctx, "style_len", "normal"), str(ctx, "style_lang", "auto"), bool(ctx, "style_simple", false)
     )
