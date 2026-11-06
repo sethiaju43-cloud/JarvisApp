@@ -72,12 +72,32 @@ object ModelRouter {
     fun onlineBackends(ctx: Context, task: Task? = null): List<Backend> {
         val strong = ProviderRegistry.strongFor(ctx, task)
         val chains = ProviderRegistry.configured(ctx).map { Pair(it.id, ProviderRegistry.chain(ctx, it.id, strong)) }
+        var pairs = ModelChain.interleave(chains)
+        // Roz ki chhoti baat-cheet (CHAT): sabse tez model sabse pehle (naapi hui speed se; sort stable hai)
+        if (task == Task.CHAT && !strong) {
+            pairs = pairs.sortedBy { ProviderRegistry.speedMs(ctx, it.first, it.second) }
+        }
         val out = ArrayList<Backend>()
-        for ((pid, m) in ModelChain.interleave(chains)) {
+        for ((pid, m) in pairs) {
             val preset = ProviderRegistry.preset(pid) ?: continue
             out.add(OnlineBackend(ctx, preset, m))
         }
         return out
+    }
+
+    /**
+     * Kaam ka batwara: jis provider ko user ne "sirf tez" ya "sirf mushkil" kaha hai, wo us kaam ke liye aage aata hai.
+     * Doosre peeche (aakhri sahara) rehte hain, hatte nahi. Local model apni jagah par rehta hai.
+     */
+    private fun applyRoles(ctx: Context, list: List<Backend>, task: Task): List<Backend> {
+        val light = task == Task.CHAT
+        val online = list.filter { !it.isLocal }
+        val sorted = online.sortedBy {
+            if (ProviderRegistry.roleFits(ctx, it.id.substringBefore('|'), light)) 0 else 1
+        }
+        if (sorted == online) return list
+        var i = 0
+        return list.map { if (it.isLocal) it else sorted[i++] }
     }
 
     /** Providers screen ke liye: is provider ke kaun se models abhi rest par hain */
@@ -100,9 +120,13 @@ object ModelRouter {
         Prefs.batterySaver(ctx) && ModelFit.shouldAvoidLocal(DeviceInfo.snapshot(ctx))
 
     fun plan(ctx: Context, task: Task, needsVision: Boolean): List<Backend> =
-        RoutePlanner.order(
-            task, Prefs.routeMode(ctx), NetworkMonitor.isOnline(ctx),
-            onlineBackends(ctx, task), localBackend(ctx), avoidLocal(ctx), needsVision
+        applyRoles(
+            ctx,
+            RoutePlanner.order(
+                task, Prefs.routeMode(ctx), NetworkMonitor.isOnline(ctx),
+                onlineBackends(ctx, task), localBackend(ctx), avoidLocal(ctx), needsVision
+            ),
+            task
         )
 
     private fun emptyPlanMessage(ctx: Context, needsVision: Boolean): String {
