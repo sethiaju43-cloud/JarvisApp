@@ -150,7 +150,8 @@ object Prompts {
         "(2) Agar user kuch galat ya nuksan wala karne ja raha ho, pyaar se rokho aur wajah batao (thodi daant bhi chalegi par izzat se), " +
         "phir sahi tareeka batao. (3) Agar user ek saath kai sawaal poochhe, har sawaal ka jawab ek hi jawab mein do, kisi ko chhodo mat. " +
         "(4) 'Tum kaun ho / naam kya hai / kisne banaya' ka seedha jawab do: tumhara naam Jarvi hai, tum AI assistant ho jo is app mein " +
-        "user ke phone par chalti ho aur jawab AI model (jaise Gemini ya Groq) se banati ho. Kisne banaya ye tumhe pakka nahi pata, " +
+        "user ke phone par chalti ho. Tumhara apna naam sirf Jarvi hai: peeche kaun sa AI model chal raha hai uska naam " +
+        "apna naam bana kar kabhi mat bolo. Kisne banaya ye tumhe pakka nahi pata, " +
         "isliye mat gadho, bolo ki pakka nahi pata. (5) Phone ka kaam jab tak poora na ho, har step ke aakhir mein ' | MORE' lagao. " +
         "Ek tareeka fail ho to doosra try karo: jaise fullscreen button na mile to video ya chhote (mini) player par tap karke use bada karo, " +
         "phir dobara fullscreen karo. (6) Gaana chalane ke liye ACTION: MUSIC <gaane ka naam> | MORE likho, phir [SCREEN TEXT] se " +
@@ -181,16 +182,30 @@ object Prompts {
     const val LOCAL_REASONING =
         "Pehle chhote steps mein maqsad, jaankari, tareeke aur risk dekho, phir sabse practical jawab aasan bhasha mein do. "
 
+    /** Prompt mein "Jarvi" ki jagah user ka rakha hua naam lagao */
+    private fun named(ctx: Context, s: String): String {
+        val n = Prefs.aiName(ctx)
+        return if (n == "Jarvi") s else s.replace("Jarvi", n)
+    }
+
+    /** Naam ko pakka karne wali line (chhote model bhi apna asli naam na bolein) */
+    private fun identity(ctx: Context): String {
+        val n = Prefs.aiName(ctx)
+        return "Tumhara naam $n hai. Koi bhi tumhara naam poochhe to sirf '$n' bolo (jaise: 'Tumhara naam kya hai?' to 'Mera naam $n hai'). " +
+            "Gemma, Gemini, Google, Llama, Qwen, GPT, ChatGPT ya kisi AI model ka naam apna naam bana kar kabhi mat bolo. "
+    }
+
     private fun persona(ctx: Context): String {
-        return if (Prefs.callJaan(ctx)) SYSTEM_PROMPT
+        val base = if (Prefs.callJaan(ctx)) SYSTEM_PROMPT
         else SYSTEM_PROMPT.replace("User ko pyaar se 'jaan' bulati ho. ", "User se izzat se (aap/tum) baat karti ho. ")
+        return named(ctx, base)
     }
 
     fun online(
         ctx: Context, task: Task, appLine: String, timeLine: String, memLine: String, apps: String
     ): String {
         val sb = StringBuilder()
-        sb.append(persona(ctx)).append(HONESTY_RULES).append(DIALOGUE_RULES).append(FRIEND_RULES).append(MEMORY_RULE)
+        sb.append(persona(ctx)).append(identity(ctx)).append(HONESTY_RULES).append(DIALOGUE_RULES).append(FRIEND_RULES).append(MEMORY_RULE)
         if (task == Task.REASONING || task == Task.CODE) sb.append(REASONING_FRAME)
         sb.append(COMMAND_RULES)
         sb.append(StyleLogic.promptLine(Prefs.style(ctx)))
@@ -202,14 +217,14 @@ object Prompts {
     /** Sirf baat-cheet, phone control ke bina (jaise Fresh Mind ya screen vision) */
     fun chatOnly(ctx: Context, task: Task, timeLine: String, memLine: String): String {
         val sb = StringBuilder()
-        sb.append(persona(ctx)).append(HONESTY_RULES).append(DIALOGUE_RULES).append(FRIEND_RULES)
+        sb.append(persona(ctx)).append(identity(ctx)).append(HONESTY_RULES).append(DIALOGUE_RULES).append(FRIEND_RULES)
         if (task == Task.REASONING || task == Task.CODE) sb.append(REASONING_FRAME)
         sb.append(StyleLogic.promptLine(Prefs.style(ctx))).append(timeLine).append(memLine)
         return sb.toString()
     }
 
     fun local(ctx: Context, task: Task, timeLine: String, memLine: String): String {
-        val sb = StringBuilder(LOCAL_BASE).append(DIALOGUE_LOCAL).append(FRIEND_LOCAL)
+        val sb = StringBuilder(identity(ctx)).append(named(ctx, LOCAL_BASE)).append(DIALOGUE_LOCAL).append(FRIEND_LOCAL)
         if (task == Task.REASONING || task == Task.CODE) sb.append(LOCAL_REASONING)
         sb.append(StyleLogic.promptLine(Prefs.style(ctx))).append(timeLine).append(memLine)
         return sb.toString()
