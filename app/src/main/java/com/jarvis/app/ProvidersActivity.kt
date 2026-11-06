@@ -72,16 +72,26 @@ class ProvidersActivity : ScreenActivity() {
 
         var baseEdit: android.widget.EditText? = null
         if (p.custom) {
-            card.addView(UiKit.text(c, "Base URL (https://... /v1 tak)", 12f, dim = true))
+            card.addView(UiKit.text(c, "Server ka link (koi bhi OpenAI-compatible server; /v1 na likho to bhi chalega)", 12f, dim = true))
             baseEdit = UiKit.input(c, "https://mera-server.com/v1", ProviderRegistry.baseUrl(c, p.id))
             card.addView(baseEdit)
+            val picked = ProviderRegistry.chain(c, p.id)
+            card.addView(UiKit.text(c,
+                if (ProviderRegistry.model(c, p.id).isNotBlank()) "Model: aapka likha hua use hoga"
+                else if (picked.isEmpty()) "Model: khud pakdega (link + key daal kar 'Check + models' dabao)"
+                else "Model (khud pakde): " + picked.joinToString("  →  "),
+                12f, dim = true))
         }
         val hasKey = ProviderRegistry.key(c, p.id).isNotBlank()
-        card.addView(UiKit.text(c, "API key: " + (if (hasKey) "✅ saved" else if (p.custom) "optional (backend ke paas ho to)" else "❌ nahi hai"), 13f))
+        card.addView(UiKit.text(c, "API key: " + (if (hasKey) "✅ saved" else if (p.custom) "optional (server ko chahiye to daalo)" else "❌ nahi hai"), 13f))
         val keyEdit = UiKit.input(c, if (hasKey) "naya key daalo to badal jayegi" else "API key", password = true)
         card.addView(keyEdit)
-        card.addView(UiKit.text(c, "Model (automatic band ho tab; ya comma se apni poori line likho)", 12f, dim = true))
-        val modelEdit = UiKit.input(c, "model ka naam", ProviderRegistry.model(c, p.id))
+        if (p.custom) {
+            card.addView(UiKit.text(c, "Model (OPTIONAL: khali chhodo to app khud server se pakad lega)", 12f, dim = true))
+        } else {
+            card.addView(UiKit.text(c, "Model (automatic band ho tab; ya comma se apni poori line likho)", 12f, dim = true))
+        }
+        val modelEdit = UiKit.input(c, if (p.custom) "khali = khud pakdega" else "model ka naam", ProviderRegistry.model(c, p.id))
         card.addView(modelEdit)
         if (p.kind != ProviderKind.GEMINI) {
             card.addView(UiKit.switchRow(c, "Is model mein photo samajhne (vision) ki shakti hai", ProviderRegistry.vision(c, p.id)) {
@@ -92,18 +102,23 @@ class ProvidersActivity : ScreenActivity() {
         val status = ProviderRegistry.lastCheck[p.id] ?: ""
         val rests = ModelRouter.restLines(c, p.id)
         val sb = StringBuilder()
-        sb.append(if (ProviderRegistry.isConfigured(c, p.id)) "✅ Router ke liye available" else "⛔ Available nahi (key/model/URL poora karo)")
+        sb.append(
+            if (ProviderRegistry.isConfigured(c, p.id)) "✅ Router ke liye available"
+            else if (p.custom) "⛔ Available nahi (https:// wala server link daalo aur Save dabao)"
+            else "⛔ Available nahi (key/model/URL poora karo)"
+        )
         if (status.isNotBlank()) sb.append("\n").append(status)
         for (rl in rests) sb.append("\n⏳ Abhi rest par: ").append(rl)
         card.addView(UiKit.text(c, sb.toString(), 12f))
 
         fun saveAll() {
             if (keyEdit.text.isNotBlank()) ProviderRegistry.setKey(c, p.id, keyEdit.text.toString())
-            if (modelEdit.text.isNotBlank()) ProviderRegistry.setModel(c, p.id, modelEdit.text.toString())
+            // Custom mein Model box khali chhodna allowed hai (khud pakdega); baaki mein khali ho to purana rahega
+            if (p.custom || modelEdit.text.isNotBlank()) ProviderRegistry.setModel(c, p.id, modelEdit.text.toString())
             val be = baseEdit
             if (be != null) {
-                val u = be.text.toString().trim()
-                if (u.isNotEmpty() && !Net.isHttps(u)) UiKit.toast(c, "Sirf https:// URL allowed hai") else ProviderRegistry.setBaseUrl(c, p.id, u)
+                val u = ProviderRegistry.normalizeBase(be.text.toString())
+                if (u.isNotEmpty() && !Net.isHttps(u)) UiKit.toast(c, "Sirf https:// link allowed hai") else ProviderRegistry.setBaseUrl(c, p.id, u)
             }
         }
 
@@ -116,8 +131,13 @@ class ProvidersActivity : ScreenActivity() {
             Thread {
                 val res = ProviderRegistry.check(c, p.id)
                 runOnUiThread {
-                    if (res.ok && res.models.isNotEmpty()) pickModel(p, res.models) else {
-                        AlertDialog.Builder(c).setTitle(p.name).setMessage((if (res.ok) "Key theek hai par models ki list khali aayi." else "❌ ") + res.message)
+                    if (p.custom && res.ok && res.models.isNotEmpty()) {
+                        // Custom: koi dialog nahi, app ne khud model chun liye
+                        UiKit.toast(c, "✅ " + res.models.size + " models mile, khud chun liye")
+                        rebuild()
+                    } else if (res.ok && res.models.isNotEmpty()) pickModel(p, res.models) else {
+                        val extra = if (p.custom) "\n\nAgar server /models list nahi deta to upar Model box mein model ka naam khud likho aur Save dabao." else ""
+                        AlertDialog.Builder(c).setTitle(p.name).setMessage((if (res.ok) "Server theek hai par models ki list khali aayi." else "❌ ") + res.message + extra)
                             .setPositiveButton("Theek hai", null).show()
                         rebuild()
                     }
@@ -125,7 +145,7 @@ class ProvidersActivity : ScreenActivity() {
             }.start()
         })
         card.addView(r)
-        if (hasKey) {
+        if (hasKey || p.custom) {
             card.addView(UiKit.button(c, "🧪 Chhota test (kitni der lagi, kya error)") {
                 UiKit.toast(c, "Test ho raha hai...")
                 Thread {
