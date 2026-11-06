@@ -19,6 +19,30 @@ object ModelAuto {
 
     private val versionRegex = Regex("(\\d+(?:\\.\\d+)?)")
 
+    // "Sochne wale" (reasoning) models pehle lamba sochte hain, isliye roz ki tez baat-cheet mein nahi chunte
+    private val thinkerWords = listOf("reason", "think", "qwq", "deepseek-r", "-r1", "/r1", "magistral")
+    private val thinkerRegex = Regex("(^|[-_/:.])(o1|o3|o4)([-_.:]|$)")
+
+    fun isThinker(name: String): Boolean {
+        val n = name.lowercase()
+        return thinkerWords.any { n.contains(it) } || thinkerRegex.containsMatchIn(n)
+    }
+
+    /**
+     * Tez baat-cheet ke liye line: bina-soch wale, na bahut bhaari na bahut chhote (score 1 se 3) models,
+     * chhota/halka pehle. Asli tez wala order baad mein naapi hui speed se banta hai (ModelRouter).
+     */
+    private fun fastOrder(providerId: String, all: List<String>, max: Int): List<String> {
+        val noThink = all.filter { !isThinker(it) }.ifEmpty { all }
+        val band = noThink.filter { score(providerId, it) in 1..3 }
+        val pool = if (band.isNotEmpty()) band else noThink
+        return pool.sortedWith(Comparator<String> { a, b ->
+            val sa = score(providerId, a)
+            val sb = score(providerId, b)
+            if (sa != sb) sa.compareTo(sb) else versionOf(b).compareTo(versionOf(a))
+        }).take(max)
+    }
+
     fun isChatModel(providerId: String, name: String): Boolean {
         val n = name.lowercase().trim()
         if (n.isEmpty()) return false
@@ -51,6 +75,7 @@ object ModelAuto {
      */
     fun order(providerId: String, names: List<String>, strongFirst: Boolean, max: Int): List<String> {
         val cands = names.map { it.trim() }.filter { isChatModel(providerId, it) }.distinct()
+        if (!strongFirst) return fastOrder(providerId, cands, max)
         val cmp = Comparator<String> { a, b ->
             val sa = score(providerId, a)
             val sb = score(providerId, b)
