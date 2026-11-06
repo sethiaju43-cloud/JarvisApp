@@ -95,6 +95,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         lastTouch = System.currentTimeMillis()
+        b.rain.applyPrefs()
+        b.rain.start()
         val floatingOn = getSharedPreferences("jarvis", MODE_PRIVATE)
             .getBoolean("floating", true)
         if (floatingOn && Settings.canDrawOverlays(this)) {
@@ -102,6 +104,12 @@ class MainActivity : AppCompatActivity() {
                 this, Intent(this, FloatingService::class.java)
             )
         }
+    }
+
+    override fun onPause() {
+        // Screen se bahar jate hi barish ruk jaye (battery)
+        b.rain.stop()
+        super.onPause()
     }
 
     override fun onDestroy() {
