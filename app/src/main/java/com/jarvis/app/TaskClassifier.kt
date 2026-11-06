@@ -95,9 +95,19 @@ object TaskClassifier {
         return text.trim().endsWith("?") || text.trim().length >= 15
     }
 
+    // User khud bole "dhyan se / soch ke batao" to seedha tagda model (mushkil kaam) chalega
+    private val deepPhrases = listOf(
+        "soch ke bata", "soch kar bata", "sochke bata", "soch ke jawab", "dhyan se bata", "dhyan se jawab",
+        "gehrai se", "gahrai se", "detail mein", "detail me ", "deep think", "think hard", "think step",
+        "सोच के बता", "सोचकर बता", "ध्यान से बता", "गहराई से"
+    )
+
+    fun wantsDeep(text: String): Boolean = hasPhrase(text, deepPhrases)
+
     fun classify(text: String, hasImage: Boolean = false): Task {
         if (hasImage) return Task.VISION
         if (isPhone(text)) return Task.PHONE
+        if (wantsDeep(text)) return Task.REASONING
         if (needsSearch(text)) return Task.SEARCH
         if (isCode(text)) return Task.CODE
         if (isSummarize(text)) return Task.SUMMARIZE
