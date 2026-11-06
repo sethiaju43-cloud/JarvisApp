@@ -1,6 +1,7 @@
 package com.jarvis.app
 
 import android.content.Context
+import android.os.Looper
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -64,7 +65,7 @@ object ProviderRegistry {
         ProviderPreset(
             "custom", "Custom / apna backend (OpenAI-compatible)", ProviderKind.OPENAI, "",
             emptyList(),
-            "Apna server ya proxy. Secret keys server par rakho, app mein nahi (production ke liye behtar).",
+            "Kisi bhi OpenAI-compatible server ka link + key daalo, model app khud pakad lega (naam likhna zaroori nahi).",
             "", custom = true
         )
     )
@@ -86,9 +87,12 @@ object ProviderRegistry {
     private val lastTry = ConcurrentHashMap<String, Long>()
     private const val FOUND_MAX_AGE = 24L * 60L * 60L * 1000L
 
-    /** Automatic mode (custom provider ke liye nahi). Default ON. */
+    /**
+     * Automatic mode. Default ON. Custom backend ke liye hamesha ON:
+     * Model box khali ho to app server ki /models list se khud model pakad leta hai.
+     */
     fun auto(ctx: Context, id: String): Boolean =
-        preset(id)?.custom == false && Prefs.bool(ctx, "prov_${id}_auto", true)
+        if (preset(id)?.custom == true) true else Prefs.bool(ctx, "prov_${id}_auto", true)
 
     fun setAuto(ctx: Context, id: String, v: Boolean) = Prefs.setBool(ctx, "prov_${id}_auto", v)
 
@@ -164,7 +168,9 @@ object ProviderRegistry {
 
     /** List khali ya 24 ghante se purani ho to peeche (background) mein provider se nayi list mangao */
     private fun refreshIfStale(ctx: Context, id: String) {
-        if (!auto(ctx, id) || key(ctx, id).isBlank()) return
+        val isCustom = preset(id)?.custom == true
+        if (!auto(ctx, id) || (key(ctx, id).isBlank() && !isCustom)) return
+        if (isCustom && !Net.isHttps(baseUrl(ctx, id))) return
         val now = System.currentTimeMillis()
         val stale = found(ctx, id).isEmpty() || now - foundAt(ctx, id) > FOUND_MAX_AGE
         if (!stale) return
@@ -182,7 +188,30 @@ object ProviderRegistry {
     }
 
     /**
+     * Custom backend: list abhi khali hai to pehle sawaal se pehle hi server se models mangao.
+     * Background thread par ho to wahin ruk kar mangata hai (taaki pehla sawaal bhi chal jaye);
+     * main (UI) thread par ho to peeche mangata hai (UI atakna nahi chahiye).
+     */
+    private fun discoverNow(ctx: Context, id: String) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            refreshIfStale(ctx, id)
+            return
+        }
+        if (!Net.isHttps(baseUrl(ctx, id))) return
+        val now = System.currentTimeMillis()
+        val last = lastTry[id] ?: 0L
+        if (now - last < 30_000L) return
+        lastTry[id] = now
+        if (!NetworkMonitor.isOnline(ctx)) return
+        try {
+            check(ctx.applicationContext, id, background = true)
+        } catch (e: Exception) {
+        }
+    }
+
+    /**
      * Is provider ke models ki line (pehla = tier 1).
+     * - Custom backend: Model box mein kuch likha ho to wahi (comma se poori line bhi chalegi), khali ho to server se khud.
      * - Model box mein comma se apni line likhi ho to wahi.
      * - Automatic ON ho to provider ki list se khud chuni hui line (abhi list na aayi ho to preset).
      * - Warna Model box ka ek naam pehle, phir preset ke baaki.
@@ -191,8 +220,9 @@ object ProviderRegistry {
         val p = preset(id) ?: return emptyList()
         val raw = Prefs.str(ctx, "prov_${id}_model", "")
         if (raw.contains(',') || raw.contains(';')) return ModelChain.parse(raw, emptyList())
+        if (p.custom && raw.isNotBlank()) return ModelChain.parse(raw, emptyList())
         if (auto(ctx, id)) {
-            refreshIfStale(ctx, id)
+            if (p.custom && found(ctx, id).isEmpty()) discoverNow(ctx, id) else refreshIfStale(ctx, id)
             val dead = deadModels(ctx, id)
             val ranked = ModelAuto.order(id, found(ctx, id).filter { it !in dead }, strong, 4)
             return if (ranked.isNotEmpty()) ranked else p.defaultModels
@@ -202,10 +232,37 @@ object ProviderRegistry {
 
     fun baseUrl(ctx: Context, id: String): String {
         val p = preset(id) ?: return ""
-        return if (p.custom) Prefs.str(ctx, "prov_${id}_base", "").trim().trimEnd('/') else p.baseUrl
+        return if (p.custom) normalizeBase(Prefs.str(ctx, "prov_${id}_base", "")) else p.baseUrl
     }
 
-    fun setBaseUrl(ctx: Context, id: String, u: String) = Prefs.setStr(ctx, "prov_${id}_base", u.trim())
+    /**
+     * Koi bhi server ka link chalega: https:// na ho to laga deta hai, aakhri '/' aur
+     * '/chat/completions' ya '/models' jaisa hissa hata deta hai (poora endpoint paste ho jaye to bhi).
+     */
+    fun normalizeBase(raw: String): String {
+        var u = raw.trim().trimEnd('/')
+        if (u.isEmpty()) return ""
+        if (!u.contains("://")) u = "https://$u"
+        for (suf in listOf("/chat/completions", "/completions", "/models")) {
+            if (u.lowercase().endsWith(suf)) {
+                u = u.dropLast(suf.length).trimEnd('/')
+                break
+            }
+        }
+        return u
+    }
+
+    fun setBaseUrl(ctx: Context, id: String, u: String) {
+        val clean = normalizeBase(u)
+        // Server badla to purani models ki list/dead list bekaar hai
+        if (preset(id)?.custom == true && clean != Prefs.str(ctx, "prov_${id}_base", "")) {
+            Prefs.setStr(ctx, "prov_${id}_found", "")
+            Prefs.setStr(ctx, "prov_${id}_found_at", "0")
+            Prefs.setStr(ctx, "prov_${id}_dead", "")
+            lastTry.remove(id)
+        }
+        Prefs.setStr(ctx, "prov_${id}_base", clean)
+    }
 
     fun vision(ctx: Context, id: String): Boolean =
         Prefs.bool(ctx, "prov_${id}_vision", preset(id)?.kind == ProviderKind.GEMINI)
@@ -223,8 +280,9 @@ object ProviderRegistry {
     fun isConfigured(ctx: Context, id: String): Boolean {
         val p = preset(id) ?: return false
         if (!enabled(ctx, id)) return false
-        if (model(ctx, id).isBlank()) return false
+        // Custom: bas https link kaafi hai. Model khali ho to khud pakdega, key optional hai.
         if (p.custom) return Net.isHttps(baseUrl(ctx, id))
+        if (model(ctx, id).isBlank()) return false
         return key(ctx, id).isNotBlank()
     }
 
@@ -240,6 +298,22 @@ object ProviderRegistry {
         val key = key(ctx, id)
         if (key.isBlank() && !p.custom) return CheckResult(false, emptyList(), "Pehle API key daalo")
         if (!NetworkMonitor.isOnline(ctx)) return CheckResult(false, emptyList(), "Internet nahi hai")
+        var res = checkOnce(ctx, id, p, base, key, background)
+        // Custom: link mein /v1 nahi likha ho to /v1 laga kar bhi dekho, chal gaya to wahi yaad rakho
+        if (!res.ok && p.custom && !base.substringAfter("://").contains('/')) {
+            val alt = "$base/v1"
+            val r2 = checkOnce(ctx, id, p, alt, key, background)
+            if (r2.ok) {
+                Prefs.setStr(ctx, "prov_${id}_base", alt) // seedha likho: setBaseUrl models ki list mita deta hai
+                res = r2
+            }
+        }
+        return res
+    }
+
+    private fun checkOnce(
+        ctx: Context, id: String, p: ProviderPreset, base: String, key: String, background: Boolean
+    ): CheckResult {
         return try {
             val rb = Request.Builder()
             if (p.kind == ProviderKind.GEMINI) {
