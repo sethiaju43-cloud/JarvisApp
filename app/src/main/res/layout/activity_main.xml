@@ -6,13 +6,23 @@
     android:layout_height="match_parent"
     android:background="@color/bg">
 
+    <!-- Peeche chalti hari code ki barish (sirf sajawat) -->
+    <com.jarvis.app.MatrixRainView
+        android:id="@+id/rain"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
     <TextView
         android:id="@+id/tvTitle"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="20dp"
         android:layout_marginTop="40dp"
-        android:text="JARVI AI"
+        android:shadowColor="#9919F5C8"
+        android:shadowDx="0"
+        android:shadowDy="0"
+        android:shadowRadius="14"
+        android:text="JARVIS"
         android:textColor="@color/neon"
         android:textSize="30sp"
         android:textStyle="bold"
@@ -23,7 +33,7 @@
         android:id="@+id/tvSub"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Hybrid AI Assistant (Online + Offline)"
+        android:text="Your AI Best Friend"
         android:textColor="@color/neon"
         android:textSize="14sp"
         app:layout_constraintStart_toStartOf="@id/tvTitle"
@@ -47,7 +57,7 @@
         android:layout_marginStart="20dp"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="60dp"
-        android:background="@drawable/bg_bubble"
+        android:background="@drawable/bg_bubble_main"
         android:text="Hii! Main Jarvi hun\nBolo, kya karna hai? 😊"
         android:textColor="@color/text_white"
         android:textSize="18sp"
