@@ -34,6 +34,10 @@ class SettingsActivity : ScreenActivity() {
         }
         val sp = Prefs.sp(this)
 
+        container.addView(UiKit.button(c, "\uD83C\uDFA8 Design / Theme / Wallpaper badlo") {
+            startActivity(Intent(c, DesignActivity::class.java))
+        })
+
         // ---------- AI ----------
         container.addView(UiKit.section(c, "🤖 AI aur Models"))
         container.addView(UiKit.text(c, ModelRouter.statusLine(c), 13f, dim = true))
@@ -164,18 +168,11 @@ class SettingsActivity : ScreenActivity() {
         container.addView(UiKit.button(c, "🔐 Permissions") { startActivity(Intent(c, PermissionsActivity::class.java)) })
 
         // ---------- Dikhawat ----------
-        container.addView(UiKit.section(c, "🎨 Dikhawat"))
-        val rainNames = arrayOf("Band", "Halka", "Tez")
-        val rainNow = sp.getInt("rain_level", 2).coerceIn(0, 2)
-        container.addView(UiKit.button(c, "🌧 Main screen par hari barish: " + rainNames[rainNow]) {
-            AlertDialog.Builder(c).setTitle("Hari barish (Matrix)")
-                .setSingleChoiceItems(rainNames, rainNow) { d, i ->
-                    sp.edit().putInt("rain_level", i).apply()
-                    d.dismiss()
-                    rebuild()
-                }.show()
+        container.addView(UiKit.section(c, "\uD83C\uDFA8 Dikhawat"))
+        container.addView(UiKit.button(c, "\uD83C\uDFA8 Design badlo: theme, bijli animation, wallpaper, DP") {
+            startActivity(Intent(c, DesignActivity::class.java))
         })
-        container.addView(UiKit.text(c, "Barish se battery thodi lagti hai. Battery Saver ON ho ya phone ke 'animations' band hon to ye apne aap ruk jati hai.", 12f, dim = true))
+        container.addView(UiKit.text(c, "25 theme, 17 animation (bijli, aurora, galaxy...), gallery wallpaper aur DP frame. Battery Saver ON ho to animation apne aap ruk jati hai.", 12f, dim = true))
 
         // ---------- Memory & privacy ----------
         container.addView(UiKit.section(c, "🧠 Memory aur Privacy"))
