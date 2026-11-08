@@ -25,15 +25,14 @@ class MessageAdapter(private val items: List<ChatMessage>) :
 
     override fun onBindViewHolder(holder: VH, position: Int) {
         val m = items[position]
+        val ctx = holder.tv.context
+        val t = AppTheme.current(ctx)
         holder.tv.text = m.text
+        holder.tv.setTextColor(t.text)
         val lp = holder.tv.layoutParams as FrameLayout.LayoutParams
-        if (m.isUser) {
-            lp.gravity = Gravity.END
-            holder.tv.setBackgroundResource(R.drawable.bg_msg_user)
-        } else {
-            lp.gravity = Gravity.START
-            holder.tv.setBackgroundResource(R.drawable.bg_msg_bot)
-        }
+        lp.gravity = if (m.isUser) Gravity.END else Gravity.START
+        holder.tv.background = AppTheme.drawableFor(ctx, if (m.isUser) "msg_user" else "msg_bot")
+        holder.tv.setPadding(UiKit.dp(ctx, 14), UiKit.dp(ctx, 10), UiKit.dp(ctx, 14), UiKit.dp(ctx, 10))
         holder.tv.layoutParams = lp
     }
 
