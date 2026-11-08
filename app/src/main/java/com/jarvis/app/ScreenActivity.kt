@@ -9,6 +9,7 @@ import com.jarvis.app.databinding.ActivityScreenBinding
 abstract class ScreenActivity : AppCompatActivity() {
 
     protected lateinit var container: LinearLayout
+    private var builtVer = -1
 
     protected abstract fun screenTitle(): String
     protected abstract fun build()
@@ -20,16 +21,19 @@ abstract class ScreenActivity : AppCompatActivity() {
         b.tvTitle.text = screenTitle()
         b.btnBack.setOnClickListener { finish() }
         container = b.container
+        builtVer = AppTheme.version(this)
         build()
     }
 
     protected fun rebuild() {
         container.removeAllViews()
+        builtVer = AppTheme.version(this)
         build()
     }
 
     override fun onResume() {
         super.onResume()
-        if (::container.isInitialized && container.childCount == 0) build()
+        // Design badla ho to screen naye rang se dobara banao
+        if (::container.isInitialized && (container.childCount == 0 || builtVer != AppTheme.version(this))) rebuild()
     }
 }
