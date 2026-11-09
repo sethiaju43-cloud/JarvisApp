@@ -537,7 +537,7 @@ object Brain {
         }
         val nowStr = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm, EEEE", java.util.Locale.ENGLISH)
             .format(java.util.Date())
-        val timeLine = "Abhi ka time: $nowStr. "
+        val timeLine = "Abhi ka time: $nowStr. " + MoodTone.line(userText)
 
         var extra = ""
         var imageB64: String? = null
