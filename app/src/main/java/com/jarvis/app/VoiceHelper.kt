@@ -16,6 +16,12 @@ object VoiceHelper {
     private val pitches = floatArrayOf(1.08f, 1.04f, 1.12f, 1.0f, 1.06f, 1.1f)
     private val rates = floatArrayOf(0.97f, 0.93f, 1.02f, 0.9f, 1.05f, 0.95f)
 
+    /** User ki chuni hui bolne ki speed ("dheere bolo" / "tez bolo"): 1.0 = normal, 0.6 se 1.5 ke beech */
+    fun speed(ctx: Context): Float =
+        (Prefs.str(ctx, "voice_speed", "1.0").toFloatOrNull() ?: 1.0f).coerceIn(0.6f, 1.5f)
+
+    fun setSpeed(ctx: Context, v: Float) = Prefs.setStr(ctx, "voice_speed", v.toString())
+
     fun index(ctx: Context): Int {
         val i = ctx.getSharedPreferences("jarvis", Context.MODE_PRIVATE).getInt("voice_idx", 0)
         return i.coerceIn(0, names.size - 1)
@@ -123,7 +129,7 @@ object VoiceHelper {
             }
         }
         tts.setPitch(pitches[idx])
-        tts.setSpeechRate(rates[idx])
+        tts.setSpeechRate(rates[idx] * speed(ctx))
         return ok
     }
 }
