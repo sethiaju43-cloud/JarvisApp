@@ -502,6 +502,84 @@ object Brain {
         }
     }
 
+    /** Yaaddasht/awaaz ke seedhe commands, bina AI ke (API ki bachat) */
+    private fun runSelfCommand(context: Context, cmd: SelfCommand, userText: String): String {
+        val memOff = "Memory band hai. Settings → Memory mein chalu karo."
+        val reply: String = when (cmd) {
+            is SelfCommand.Repeat -> {
+                // Pichla jawab dobara (naya AI call nahi, naya note bhi nahi)
+                return snapshotMemory(context).lastOrNull { it.first == "model" }?.second
+                    ?: "Abhi dobara bolne layak kuch nahi hai 🙂"
+            }
+            is SelfCommand.Speed -> {
+                val cur = VoiceHelper.speed(context)
+                val nxt = SelfCommands.nextSpeed(cur, cmd.dir)
+                if (cmd.dir < 0 && nxt == cur) {
+                    "Isse zyada dheere nahi bol sakti 🐢"
+                } else if (cmd.dir > 0 && nxt == cur) {
+                    "Isse zyada tez nahi bol sakti 🐇"
+                } else {
+                    VoiceHelper.setSpeed(context, nxt)
+                    when {
+                        cmd.dir < 0 -> "Theek hai, ab thoda dheere bolungi 🐢"
+                        cmd.dir > 0 -> "Theek hai, ab thoda tez bolungi 🐇"
+                        else -> "Theek hai, ab normal speed mein bolungi 🙂"
+                    }
+                }
+            }
+            is SelfCommand.Recall -> {
+                if (!MemoryStore.enabled(context)) {
+                    memOff
+                } else {
+                    val list = MemoryStore.list(context).sortedByDescending { it.createdAt }.take(6)
+                    if (list.isEmpty()) {
+                        "Abhi mujhe aapke baare mein kuch khaas yaad nahi hai 🙂 Bolo: 'yaad rakho ki ...'"
+                    } else {
+                        "Mujhe aapke baare mein ye yaad hai: " + list.joinToString("; ") { it.text } +
+                            ". Poori list Settings → Memory mein hai 📝"
+                    }
+                }
+            }
+            is SelfCommand.Forget -> {
+                if (!MemoryStore.enabled(context)) {
+                    memOff
+                } else {
+                    val list = MemoryStore.list(context)
+                    val m = SelfCommands.bestMatch(cmd.about, list.map { it.text }, 0.5)
+                    when {
+                        m.index < 0 -> "Is baare mein mujhe kuch yaad nahi mila 🙂"
+                        m.ambiguous -> "Isse milti-julti kai yaadein hain. Thoda saaf bolo, ya Settings → Memory se khud hata do 📝"
+                        else -> {
+                            val e = list[m.index]
+                            MemoryStore.remove(context, e.id)
+                            "Theek hai, bhool gayi: '" + e.text + "' 🗑 (galti se hua to 'yaad rakho ki ...' bolo)"
+                        }
+                    }
+                }
+            }
+            is SelfCommand.Correct -> {
+                if (!MemoryStore.enabled(context)) {
+                    memOff
+                } else if (SensitiveFilter.isSensitive(cmd.fact)) {
+                    "Ye nijji/sensitive lagti hai, isliye sudhaar mein save nahi ki 🔒 Settings → Memory se khud badal sakte ho."
+                } else {
+                    val list = MemoryStore.list(context)
+                    val m = SelfCommands.bestMatch(cmd.fact, list.map { it.text }, 0.5)
+                    if (m.index >= 0 && !m.ambiguous) {
+                        val e = list[m.index]
+                        val old = e.text
+                        MemoryStore.update(context, e.id, cmd.fact)
+                        "Sudhaar diya ✅ pehle: '" + old + "', ab: '" + cmd.fact.trim() + "'"
+                    } else {
+                        rememberExplicit(context, cmd.fact)
+                    }
+                }
+            }
+        }
+        noteLocal(context, userText, reply)
+        return reply
+    }
+
     private fun askSmartInner(context: Context, history: List<Pair<String, String>>): String {
         val last = history.lastOrNull()
         val userText = if (last != null && last.first == "user") last.second else ""
@@ -522,6 +600,10 @@ object Brain {
 
         // "API kitni use hui": ginti seedha batao (AI ko bhejne ki zaroorat nahi)
         if (UsageStats.isUsageQuestion(userText)) return UsageStats.report(context)
+
+        // Yaaddasht aur awaaz ke seedhe commands (bhool jao, sudhaar, kya yaad hai, dobara bolo, dheere/tez bolo)
+        val selfCmd = SelfCommands.parse(userText)
+        if (selfCmd != null) return runSelfCommand(context, selfCmd, userText)
 
         // Aam chhote phone-kaam (torch, volume, alarm, call...) bina AI ke seedha: API ki bachat
         val ruleCmd = ruleCommand(userText)
