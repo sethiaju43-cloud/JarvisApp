@@ -144,11 +144,56 @@ object ModelRouter {
         }
     }
 
+    // Duplicate request guard: ek hi sawaal kuch second ke andar dobara aaye (double-tap) to purana jawab wapas
+    private const val DUP_WINDOW_MS = 6000L
+    private var dupKey: String? = null
+    private var dupAt = 0L
+    private var dupRes: RouteResult? = null
+
+    @Synchronized
+    private fun dupLookup(key: String): RouteResult? {
+        val r = dupRes ?: return null
+        return if (key == dupKey && BudgetLogic.isFresh(dupAt, System.currentTimeMillis(), DUP_WINDOW_MS)) r else null
+    }
+
+    @Synchronized
+    private fun dupStore(key: String, res: RouteResult) {
+        dupKey = key
+        dupAt = System.currentTimeMillis()
+        dupRes = res
+    }
+
     fun complete(ctx: Context, req: RouterRequest, stop: () -> Boolean = { false }): RouteResult {
         // Local model ko beech mein rokne ke liye "Ruko" check yahan rakho
         stopCheck = stop
+
+        // Phone ke kaam (PHONE) aur photo wali requests kabhi duplicate nahi maani jaatin
+        val dKey = if (req.task != Task.PHONE && req.imageB64 == null) BudgetLogic.dupKey(req.task.name, req.history) else null
+        if (dKey != null) {
+            val prev = dupLookup(dKey)
+            if (prev != null) {
+                UsageStats.duplicate(ctx)
+                return prev
+            }
+        }
+
+        // Budget: limit poori ho to sirf local model, warna 80% par ek baar chetavni
+        val budget = Budget.state(ctx)
+        var candidates = plan(ctx, req.task, req.imageB64 != null)
+        if (budget.exceeded) {
+            val localOnly = candidates.filter { it.isLocal }
+            if (localOnly.isEmpty()) {
+                return RouteResult(
+                    false, "", null, emptyList(), ErrKind.NONE,
+                    Budget.blockMessage(budget), emptyList(), false, "", emptyList()
+                )
+            }
+            candidates = localOnly
+        }
+        Budget.alertOnce(ctx, budget)?.let { onStatus?.invoke(it) }
+
         // Har asli online request ginti mein aati hai (UsageStats)
-        val order = plan(ctx, req.task, req.imageB64 != null).map { CountingBackend(ctx, it) }
+        val order = candidates.map { CountingBackend(ctx, it) }
         if (order.isEmpty()) {
             return RouteResult(
                 false, "", null, emptyList(), ErrKind.NONE,
@@ -158,6 +203,7 @@ object ModelRouter {
         val res = core.run(order, req, 2, stop)
         if (res.ok && res.backend != null) {
             lastLabel = res.backend.label
+            if (dKey != null) dupStore(dKey, res)
             return res
         }
         // Provider ke fast-fail (galat key / internet dikkat) ka asli kaaran chhupna nahi chahiye
