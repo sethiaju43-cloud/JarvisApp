@@ -96,6 +96,8 @@ object ApiKeyStore {
                 val enc = encrypt(old)
                 if (enc != null) securePrefs(ctx).edit().putString(SECURE_NAME, enc).apply()
             }
+            // Taale mein sahi copy ban gayi ho to purani khuli copy hata do (na bane to rehne do, app chalti rahe)
+            removeOldCopy(ctx)
             return old
         }
         return secure
