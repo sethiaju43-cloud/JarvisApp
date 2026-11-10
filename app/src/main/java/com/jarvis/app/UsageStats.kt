@@ -25,14 +25,14 @@ object UsageStats {
     /** Text ki lambai se tokens ka andaaza (asli token count nahi, Hindi mein thoda zyada hota hai) */
     fun estTokens(chars: Int): Int = if (chars <= 0) 0 else (chars + 3) / 4
 
-    /** Purani ginti hata do. n: = 7 din, baaki (l:, ti:, to:, f:) = 30 din */
+    /** Purani ginti hata do. n: = 7 din, baaki (l:, ti:, to:, f:, d:) = 30 din */
     private fun prune(p: android.content.SharedPreferences, e: android.content.SharedPreferences.Editor, now: Long) {
         val oldestN = dayKey(now - KEEP_DAYS * DAY_MS)
         val oldestDash = dayKey(now - KEEP_DAYS_DASH * DAY_MS)
         for (key in p.all.keys) {
             val parts = key.split(":", limit = 3)
             if (parts.size < 3) continue
-            val limit = if (parts[0] == "n") oldestN else if (parts[0] in setOf("l", "ti", "to", "f")) oldestDash else continue
+            val limit = if (parts[0] == "n") oldestN else if (parts[0] in setOf("l", "ti", "to", "f", "d")) oldestDash else continue
             if (parts[1] < limit) e.remove(key)
         }
     }
@@ -94,6 +94,18 @@ object UsageStats {
         }
     }
 
+    /** Ek duplicate request roki gayi (online call bachi, wahi purana jawab diya) */
+    @Synchronized
+    fun duplicate(ctx: Context, now: Long = System.currentTimeMillis()) {
+        try {
+            val p = sp(ctx)
+            val e = p.edit()
+            bump(p, e, "d:" + dayKey(now) + ":x", 1L)
+            e.apply()
+        } catch (t: Exception) {
+        }
+    }
+
     /** Ek din ki ginti: provider -> calls */
     private fun perProvider(ctx: Context, day: String): Map<String, Int> {
         val out = LinkedHashMap<String, Int>()
@@ -149,6 +161,7 @@ object UsageStats {
             cloudByProvider = cloud,
             localByModel = sumByLabel(ctx, "l", d, now),
             failedByProvider = sumByLabel(ctx, "f", d, now),
+            duplicatesAvoided = sumByLabel(ctx, "d", d, now).values.sum(),
             tokInCloud = sumTokens(ctx, "ti", "C", d, now),
             tokOutCloud = sumTokens(ctx, "to", "C", d, now),
             tokInLocal = sumTokens(ctx, "ti", "L", d, now),
@@ -163,6 +176,8 @@ object UsageStats {
         val cloudByProvider: Map<String, Long>,
         val localByModel: Map<String, Long>,
         val failedByProvider: Map<String, Long>,
+        /** Double-tap jaisi duplicate requests jo online gayi hi nahi (asli ginti) */
+        val duplicatesAvoided: Long,
         val tokInCloud: Long,
         val tokOutCloud: Long,
         val tokInLocal: Long,
