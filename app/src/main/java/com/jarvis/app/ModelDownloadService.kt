@@ -110,7 +110,7 @@ object ModelDownloader {
                 var have = if (part.exists()) part.length() else 0L
                 val rb = Request.Builder().url(m.url)
                 val tok = ApiKeyStore.getSecret(ctx, "hf_token")
-                if (tok.isNotBlank() && m.url.contains("huggingface.co")) {
+                if (tok.isNotBlank() && UrlGuard.isHuggingFace(m.url)) {
                     rb.header("Authorization", "Bearer $tok")
                 }
                 if (have > 0) rb.header("Range", "bytes=$have-")
@@ -204,7 +204,7 @@ object ModelDownloader {
         return try {
             val rb = Request.Builder().url(m.url).head()
             val tok = ApiKeyStore.getSecret(ctx, "hf_token")
-            if (tok.isNotBlank() && m.url.contains("huggingface.co")) rb.header("Authorization", "Bearer $tok")
+            if (tok.isNotBlank() && UrlGuard.isHuggingFace(m.url)) rb.header("Authorization", "Bearer $tok")
             Net.api.newCall(rb.build()).execute().use { r ->
                 if (!r.isSuccessful) "Check nahi ho paya (code " + r.code + ")"
                 else {
