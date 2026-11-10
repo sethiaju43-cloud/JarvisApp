@@ -73,10 +73,46 @@ class DashboardActivity : ScreenActivity() {
             real.addView(p)
             real.addView(UiKit.text(c, "$pct% jawab phone par hi bane", 12f, dim = true))
         }
+        real.addView(UiKit.text(c, "🔁 Duplicate request roki (double-tap): " + num(s.duplicatesAvoided), 13f, dim = true))
         if (s.cloudHistoryCapped) {
             real.addView(UiKit.text(c, "Dhyan: online calls ki ginti sirf pichhle 7 din ki rakhi jati hai, isliye 30 din mein ye kam dikh sakti hai.", 11f, dim = true))
         }
         container.addView(real)
+
+        // ---------- Budget ----------
+        container.addView(UiKit.section(c, "🚦 Online budget (limit)"))
+        val bud = UiKit.card(c)
+        val b = Budget.state(c)
+        if (b.dailyLimit > 0) {
+            bud.addView(UiKit.text(c, levelIcon(b.dailyLevel) + " Aaj: " + num(b.callsToday) + " / " + num(b.dailyLimit.toLong()) + " online calls", 14f))
+            val pb = UiKit.progress(c)
+            pb.progress = (b.callsToday * 100 / b.dailyLimit).toInt().coerceIn(0, 100)
+            bud.addView(pb)
+        } else {
+            bud.addView(UiKit.text(c, "Roz ki call limit: band", 13f, dim = true))
+        }
+        if (b.monthlyLimit > 0.0) {
+            bud.addView(UiKit.text(c, levelIcon(b.monthlyLevel) + " 30 din ka kharch (andaaza): " + usd(b.usdMonth) + " / " + usd(b.monthlyLimit), 14f))
+            val pm = UiKit.progress(c)
+            pm.progress = (b.usdMonth / b.monthlyLimit * 100).toInt().coerceIn(0, 100)
+            bud.addView(pm)
+        } else {
+            bud.addView(UiKit.text(c, "Mahine ki kharch limit: band", 13f, dim = true))
+        }
+        bud.addView(UiKit.text(c,
+            "Limit poori hone par online model band ho jata hai aur local model (agar installed ho) se jawab aata hai. " +
+                "80% par ek baar chetavni milti hai. Kharch asli bill nahi, tokens × aapka rate ka andaaza hai. 0 = limit band.", 11f, dim = true))
+        bud.addView(UiKit.button(c, "✏️ Roz ki call limit") {
+            numberDialog("Roz ki online calls (0 = band)", Budget.dailyCallLimit(c).toString(), false) { v ->
+                Budget.setDailyCallLimit(c, v.toInt())
+            }
+        })
+        bud.addView(UiKit.button(c, "✏️ Mahine ki kharch limit (USD andaaza)") {
+            numberDialog("30 din ka kharch, USD (0 = band)", Budget.monthlyUsdLimit(c).toString(), true) { v ->
+                Budget.setMonthlyUsdLimit(c, v)
+            }
+        })
+        container.addView(bud)
 
         // ---------- Andaaza ----------
         container.addView(UiKit.section(c, "🧮 Andaaza (estimate)"))
@@ -122,6 +158,26 @@ class DashboardActivity : ScreenActivity() {
                 .setPositiveButton("Haan") { _, _ -> UsageStats.clear(c); rebuild() }
                 .setNegativeButton("Nahi", null).show()
         })
+    }
+
+    private fun levelIcon(l: BudgetLevel): String = when (l) {
+        BudgetLevel.EXCEEDED -> "🛑"
+        BudgetLevel.WARN -> "⚠️"
+        else -> "🟢"
+    }
+
+    /** Ek number poochne wala chhota dialog. Galat number par kuch save nahi hota. */
+    private fun numberDialog(title: String, current: String, decimal: Boolean, onSave: (Double) -> Unit) {
+        val c = this
+        val et = EditText(c)
+        et.setText(current)
+        et.inputType = android.text.InputType.TYPE_CLASS_NUMBER or
+            (if (decimal) android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL else 0)
+        AlertDialog.Builder(c).setTitle(title).setView(et)
+            .setPositiveButton("Save") { _, _ ->
+                val v = et.text.toString().trim().toDoubleOrNull()
+                if (v == null || v < 0) UiKit.toast(c, "Sahi number daalo") else { onSave(v); rebuild() }
+            }.setNegativeButton("Cancel", null).show()
     }
 
     private fun routeLabel(m: String): String = when (m) {
