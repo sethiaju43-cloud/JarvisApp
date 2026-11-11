@@ -605,6 +605,15 @@ object Brain {
         val selfCmd = SelfCommands.parse(userText)
         if (selfCmd != null) return runSelfCommand(context, selfCmd, userText)
 
+        // Reminders aur notifications padhna: seedhe commands, bina AI ke (privacy + API ki bachat)
+        val featureReply = FeatureCommands.handle(context, userText)
+        if (featureReply != null) {
+            // Notification ka text kabhi AI ki yaaddasht mein nahi jata
+            val note = if (NotificationLogic.parseCommand(userText) != null) "(notification ka jawab diya gaya)" else featureReply
+            noteLocal(context, userText, note)
+            return featureReply
+        }
+
         // Aam chhote phone-kaam (torch, volume, alarm, call...) bina AI ke seedha: API ki bachat
         val ruleCmd = ruleCommand(userText)
         if (ruleCmd != null) return runRule(context, userText, ruleCmd)
