@@ -8,6 +8,13 @@ import androidx.core.content.ContextCompat
 
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        // Phone restart ya app update ke baad reminders dobara lagao
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            try {
+                Reminders.rescheduleAll(context)
+            } catch (e: Exception) {
+            }
+        }
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
             val prefs = context.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
             val autoStart = prefs.getBoolean("auto_start", false)
