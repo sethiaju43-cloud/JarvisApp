@@ -85,7 +85,7 @@ class PermissionsActivity : AppCompatActivity() {
                 { has(Manifest.permission.READ_CONTACTS) },
                 { launcher.launch(arrayOf(Manifest.permission.READ_CONTACTS)) }),
 
-            Perm("Notifications", "Background running",
+            Perm("Notifications", "Reminders aur background",
                 {
                     Build.VERSION.SDK_INT < 33 ||
                         has(Manifest.permission.POST_NOTIFICATIONS)
@@ -94,7 +94,11 @@ class PermissionsActivity : AppCompatActivity() {
                     if (Build.VERSION.SDK_INT >= 33) {
                         launcher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
                     }
-                })
+                }),
+
+            Perm("Notification access", "Notifications padhna (sirf phone par)",
+                { JarviNotificationListener.isEnabled(this) },
+                { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
         )
 
         for (p in perms) {
