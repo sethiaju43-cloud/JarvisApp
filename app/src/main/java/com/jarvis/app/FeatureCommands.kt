@@ -5,6 +5,7 @@ import java.util.TimeZone
 
 /**
  * Seedhe commands jo AI ko bheje bina phone par hi ho jate hain (privacy + API ki bachat):
+ *  - driving mode: "driving mode chalu karo", "driving mode band karo"
  *  - reminders: "5 baje yaad dilana ...", "mere reminders batao", "sab reminder hata do"
  *  - to-do list: "todo mein dudh lana jodo", "mere todo batao", "dudh wala todo ho gaya"
  *  - notifications: "notification padho", "notification saaf karo"
@@ -14,6 +15,8 @@ object FeatureCommands {
     fun handle(ctx: Context, text: String): String? {
         val now = System.currentTimeMillis()
         val tz = TimeZone.getDefault()
+        val d = DrivingLogic.parse(text)
+        if (d != null) return runDriving(ctx, d)
         val r = ReminderLogic.parse(text, now, tz)
         if (r != null) return runReminder(ctx, r, now, tz)
         val t = TodoLogic.parse(text)
@@ -21,6 +24,28 @@ object FeatureCommands {
         val n = NotificationLogic.parseCommand(text)
         if (n != null) return runNotification(ctx, n)
         return null
+    }
+
+    private fun runDriving(ctx: Context, c: DrivingCommand): String {
+        return when (c) {
+            DrivingCommand.ON -> {
+                DrivingMode.turnOn(ctx)
+                var s = "Driving mode chalu 🚗 (" + DrivingMode.DEFAULT_HOURS + " ghante ke liye). Ab main chhote jawab dungi " +
+                    "aur naye message bolkar sunaungi. Band karne ko bolo: 'driving mode band karo'. Dhyan se chalana 🙏"
+                if (!JarviNotificationListener.isEnabled(ctx)) {
+                    s += "\n(Message sunane ke liye Settings → Permissions → 'Notification access' Allow karo.)"
+                }
+                s
+            }
+            DrivingCommand.OFF -> {
+                val was = DrivingMode.isOn(ctx)
+                DrivingMode.turnOff(ctx)
+                if (was) "Driving mode band ✅" else "Driving mode pehle se band tha 🙂"
+            }
+            DrivingCommand.STATUS ->
+                if (DrivingMode.isOn(ctx)) "Driving mode chalu hai 🚗 (lagbhag " + DrivingMode.remainingMinutes(ctx) + " minute baaki)"
+                else "Driving mode band hai."
+        }
     }
 
     private fun runTodo(ctx: Context, c: TodoCommand): String {
