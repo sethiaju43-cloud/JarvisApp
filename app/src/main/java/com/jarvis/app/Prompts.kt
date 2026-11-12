@@ -209,7 +209,7 @@ object Prompts {
         sb.append(persona(ctx)).append(identity(ctx)).append(HONESTY_RULES).append(DIALOGUE_RULES).append(FRIEND_RULES).append(MEMORY_RULE)
         if (task == Task.REASONING || task == Task.CODE) sb.append(REASONING_FRAME)
         sb.append(COMMAND_RULES)
-        sb.append(StyleLogic.promptLine(Prefs.style(ctx)))
+        sb.append(StyleLogic.promptLine(Prefs.style(ctx)) + DrivingMode.line(ctx))
         sb.append(appLine).append(timeLine).append(memLine)
         sb.append("Phone mein installed apps ki list: ").append(apps)
         return sb.toString()
@@ -220,14 +220,14 @@ object Prompts {
         val sb = StringBuilder()
         sb.append(persona(ctx)).append(identity(ctx)).append(HONESTY_RULES).append(DIALOGUE_RULES).append(FRIEND_RULES)
         if (task == Task.REASONING || task == Task.CODE) sb.append(REASONING_FRAME)
-        sb.append(StyleLogic.promptLine(Prefs.style(ctx))).append(timeLine).append(memLine)
+        sb.append(StyleLogic.promptLine(Prefs.style(ctx)) + DrivingMode.line(ctx)).append(timeLine).append(memLine)
         return sb.toString()
     }
 
     fun local(ctx: Context, task: Task, timeLine: String, memLine: String): String {
         val sb = StringBuilder(identity(ctx)).append(named(ctx, LOCAL_BASE)).append(DIALOGUE_LOCAL).append(FRIEND_LOCAL)
         if (task == Task.REASONING || task == Task.CODE) sb.append(LOCAL_REASONING)
-        sb.append(StyleLogic.promptLine(Prefs.style(ctx))).append(timeLine).append(memLine)
+        sb.append(StyleLogic.promptLine(Prefs.style(ctx)) + DrivingMode.line(ctx)).append(timeLine).append(memLine)
         return sb.toString()
     }
 }
