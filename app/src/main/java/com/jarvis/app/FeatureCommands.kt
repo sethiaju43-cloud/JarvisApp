@@ -6,6 +6,7 @@ import java.util.TimeZone
 /**
  * Seedhe commands jo AI ko bheje bina phone par hi ho jate hain (privacy + API ki bachat):
  *  - reminders: "5 baje yaad dilana ...", "mere reminders batao", "sab reminder hata do"
+ *  - to-do list: "todo mein dudh lana jodo", "mere todo batao", "dudh wala todo ho gaya"
  *  - notifications: "notification padho", "notification saaf karo"
  */
 object FeatureCommands {
@@ -15,9 +16,79 @@ object FeatureCommands {
         val tz = TimeZone.getDefault()
         val r = ReminderLogic.parse(text, now, tz)
         if (r != null) return runReminder(ctx, r, now, tz)
+        val t = TodoLogic.parse(text)
+        if (t != null) return runTodo(ctx, t)
         val n = NotificationLogic.parseCommand(text)
         if (n != null) return runNotification(ctx, n)
         return null
+    }
+
+    private fun runTodo(ctx: Context, c: TodoCommand): String {
+        return when (c) {
+            is TodoCommand.Add -> {
+                val item = Todos.add(ctx, c.text)
+                if (item == null) {
+                    "To-do list bhar gayi (" + Todos.MAX_ITEMS + "). Kuch hata do 🗑"
+                } else {
+                    val pending = Todos.list(ctx).count { !it.done }
+                    "Todo mein jod diya ✅: " + c.text + " (ab " + pending + " kaam baaki)"
+                }
+            }
+            is TodoCommand.MissingText -> "Kya jodun? Jaise: 'todo mein dudh lana jodo' 📝"
+            is TodoCommand.ShowAll -> {
+                val items = Todos.list(ctx)
+                val pending = items.filter { !it.done }
+                val doneCount = items.size - pending.size
+                if (items.isEmpty()) {
+                    "Todo list khali hai 🙂 Bolo: 'todo mein dudh lana jodo'"
+                } else if (pending.isEmpty()) {
+                    "Sab kaam ho chuke hain 🎉 ($doneCount ho gaye). 'sab todo hata do' bolke list saaf kar sakte ho."
+                } else {
+                    val sb = StringBuilder("Aapke ").append(pending.size).append(" kaam baaki hain:")
+                    for ((i, item) in pending.withIndex()) sb.append("\n").append(i + 1).append(") ").append(item.text)
+                    if (doneCount > 0) sb.append("\n✅ ").append(doneCount).append(" ho chuke")
+                    sb.toString()
+                }
+            }
+            is TodoCommand.Done -> {
+                val pending = Todos.list(ctx).filter { !it.done }
+                if (c.about.isEmpty()) {
+                    "Kaun sa kaam hua? 'mere todo batao' bolkar dekh lo."
+                } else {
+                    val m = SelfCommands.bestMatch(c.about, pending.map { it.text }, 0.5)
+                    when {
+                        m.index < 0 -> "Is naam ka koi baaki kaam nahi mila 🙂"
+                        m.ambiguous -> "Isse milte-julte kai kaam hain. Thoda saaf bolo."
+                        else -> {
+                            val item = pending[m.index]
+                            Todos.markDone(ctx, item.id)
+                            "Shabash 🎉 ho gaya: " + item.text
+                        }
+                    }
+                }
+            }
+            is TodoCommand.Remove -> {
+                val items = Todos.list(ctx)
+                if (c.about.isEmpty()) {
+                    "Kaun sa kaam hataun? 'mere todo batao' bolkar dekh lo, ya 'sab todo hata do' bolo."
+                } else {
+                    val m = SelfCommands.bestMatch(c.about, items.map { it.text }, 0.5)
+                    when {
+                        m.index < 0 -> "Is naam ka koi kaam nahi mila 🙂"
+                        m.ambiguous -> "Isse milte-julte kai kaam hain. Thoda saaf bolo ya 'sab todo hata do' bolo."
+                        else -> {
+                            val item = items[m.index]
+                            Todos.remove(ctx, item.id)
+                            "Todo se hata diya 🗑: " + item.text
+                        }
+                    }
+                }
+            }
+            is TodoCommand.ClearAll -> {
+                val n = Todos.removeAll(ctx)
+                if (n == 0) "Todo list pehle se khali thi 🙂" else "Saari todo list saaf kar di ($n kaam) 🗑"
+            }
+        }
     }
 
     private fun runReminder(ctx: Context, r: ReminderCommand, now: Long, tz: TimeZone): String {
