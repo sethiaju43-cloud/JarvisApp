@@ -29,7 +29,7 @@ class JarviNotificationListener : NotificationListenerService() {
         instance = this
         try {
             val active = activeNotifications
-            if (active != null) for (sbn in active) add(sbn)
+            if (active != null) for (sbn in active) add(sbn, false)
         } catch (e: Exception) {
         }
     }
@@ -39,7 +39,7 @@ class JarviNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        if (sbn != null) add(sbn)
+        if (sbn != null) add(sbn, true)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
@@ -54,7 +54,10 @@ class JarviNotificationListener : NotificationListenerService() {
             pkg
         }
 
-    private fun add(sbn: StatusBarNotification) {
+    // Driving mode mein ek hi message do baar na bole (notification update hone par)
+    private val spoken = HashMap<String, String>()
+
+    private fun add(sbn: StatusBarNotification, announce: Boolean) {
         try {
             if (sbn.packageName == packageName) return
             val n = sbn.notification ?: return
@@ -65,7 +68,18 @@ class JarviNotificationListener : NotificationListenerService() {
             val title = ex.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
             val text = (ex.getCharSequence(Notification.EXTRA_BIG_TEXT) ?: ex.getCharSequence(Notification.EXTRA_TEXT))?.toString() ?: ""
             val item = NotificationLogic.make(sbn.key, sbn.packageName, appLabel(sbn.packageName), title, text, sbn.postTime)
-            if (item != null) NotificationStore.put(item)
+            if (item != null) {
+                NotificationStore.put(item)
+                // Driving mode chalu ho to naya message bolkar sunao (sirf message category, code/OTP kabhi nahi)
+                if (announce && n.category == Notification.CATEGORY_MESSAGE && DrivingMode.isOn(this)) {
+                    val line = DrivingLogic.speakLine(item.app, item.title, item.text)
+                    if (line != null && spoken[sbn.key] != item.text) {
+                        if (spoken.size > 100) spoken.clear()
+                        spoken[sbn.key] = item.text
+                        DrivingSpeaker.say(this, line)
+                    }
+                }
+            }
         } catch (e: Exception) {
         }
     }
