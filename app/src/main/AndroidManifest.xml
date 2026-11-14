@@ -66,6 +66,12 @@
         <activity android:name=".VoiceStudioActivity" android:exported="false" />
         <activity android:name=".DesignActivity" android:exported="false" />
         <activity android:name=".DashboardActivity" android:exported="false" />
+        <activity
+            android:name=".AssistActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <service
             android:name=".ModelDownloadService"
@@ -107,6 +113,17 @@
             </intent-filter>
         </service>
 
+        <service
+            android:name=".JarviTileService"
+            android:exported="true"
+            android:icon="@android:drawable/ic_btn_speak_now"
+            android:label="Jarvi"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">
@@ -118,6 +135,10 @@
 
         <receiver
             android:name=".ReminderReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".AutoReplyReceiver"
             android:exported="false" />
     </application>
 </manifest>
