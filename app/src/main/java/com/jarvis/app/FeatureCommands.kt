@@ -6,6 +6,7 @@ import java.util.TimeZone
 /**
  * Seedhe commands jo AI ko bheje bina phone par hi ho jate hain (privacy + API ki bachat):
  *  - driving mode: "driving mode chalu karo", "driving mode band karo"
+ *  - auto-reply: "auto reply chalu karo", "auto reply mein Rahul ko jodo" (har reply aapki haan ke baad hi jata hai)
  *  - reminders: "5 baje yaad dilana ...", "mere reminders batao", "sab reminder hata do"
  *  - to-do list: "todo mein dudh lana jodo", "mere todo batao", "dudh wala todo ho gaya"
  *  - notifications: "notification padho", "notification saaf karo"
@@ -17,6 +18,8 @@ object FeatureCommands {
         val tz = TimeZone.getDefault()
         val d = DrivingLogic.parse(text)
         if (d != null) return runDriving(ctx, d)
+        val ar = AutoReplyLogic.parse(text)
+        if (ar != null) return runAutoReply(ctx, ar)
         val r = ReminderLogic.parse(text, now, tz)
         if (r != null) return runReminder(ctx, r, now, tz)
         val t = TodoLogic.parse(text)
@@ -24,6 +27,69 @@ object FeatureCommands {
         val n = NotificationLogic.parseCommand(text)
         if (n != null) return runNotification(ctx, n)
         return null
+    }
+
+    private fun runAutoReply(ctx: Context, c: AutoReplyCommand): String {
+        return when (c) {
+            is AutoReplyCommand.On -> {
+                if (!JarviNotificationListener.isEnabled(ctx)) {
+                    "Auto-reply ke liye pehle Settings → Permissions → 'Notification access' Allow karo."
+                } else {
+                    AutoReply.turnOn(ctx, c.hours)
+                    val who = AutoReply.contacts(ctx)
+                    var s = "Auto-reply chalu 💬 (" + c.hours + " ghante). Har jawab bhejne se pehle main aapse poochhungi " +
+                        "(notification mein Bhejo / Mat bhejo). Group chat mein kabhi nahi bhejti.\nJawab: " + AutoReply.message(ctx)
+                    if (!AutoReply.everyone(ctx) && who.isEmpty()) {
+                        s += "\n⚠️ Abhi kisi ko chuna nahi hai. Bolo: 'auto reply mein Rahul ko jodo'."
+                    }
+                    s
+                }
+            }
+            is AutoReplyCommand.Off -> {
+                val was = AutoReply.isOn(ctx)
+                AutoReply.turnOff(ctx)
+                if (was) "Auto-reply band ✅" else "Auto-reply pehle se band tha 🙂"
+            }
+            is AutoReplyCommand.SetMessage ->
+                if (NotificationLogic.looksSecret("", c.text)) {
+                    "Is message mein OTP/password jaisi cheez lag rahi hai, ise auto-reply mein nahi rakhungi 🔒"
+                } else {
+                    AutoReply.setMessage(ctx, c.text)
+                    "Auto-reply ka jawab set ho gaya ✅: " + c.text
+                }
+            is AutoReplyCommand.AddContact ->
+                if (c.name == "*") {
+                    AutoReply.setEveryone(ctx, true)
+                    "Ab sabhi 1-to-1 chat ke liye auto-reply ka draft banegi (group chat mein nahi). Har baar aapse poochhungi ✅"
+                } else if (AutoReply.addContact(ctx, c.name)) {
+                    "Auto-reply mein jod diya ✅: " + c.name
+                } else {
+                    c.name + " pehle se list mein hai (ya list bhar gayi hai) 🙂"
+                }
+            is AutoReplyCommand.RemoveContact ->
+                if (c.name == "*") {
+                    AutoReply.setEveryone(ctx, false)
+                    "Ab sirf aapke chune hue logon ko hi auto-reply ka draft banegi ✅"
+                } else if (AutoReply.removeContact(ctx, c.name)) {
+                    "Auto-reply se hata diya 🗑: " + c.name
+                } else {
+                    "Is naam ka koi contact list mein nahi mila 🙂"
+                }
+            is AutoReplyCommand.ListContacts -> {
+                val who = AutoReply.contacts(ctx)
+                if (AutoReply.everyone(ctx)) "Auto-reply sabhi 1-to-1 chat ke liye hai (har baar poochhke)."
+                else if (who.isEmpty()) "Auto-reply mein abhi koi nahi hai. Bolo: 'auto reply mein Rahul ko jodo'."
+                else "Auto-reply in logon ke liye hai: " + who.joinToString(", ")
+            }
+            is AutoReplyCommand.Status ->
+                if (AutoReply.isOn(ctx)) "Auto-reply chalu hai 💬 (lagbhag " + AutoReply.remainingMinutes(ctx) + " minute baaki)"
+                else "Auto-reply band hai."
+            is AutoReplyCommand.ShowLog -> {
+                val lines = AutoReply.logLines(ctx)
+                if (lines.isEmpty()) "Auto-reply ne abhi tak kuch nahi bheja 🙂"
+                else "Auto-reply ne ye bheje hain:\n" + lines.take(10).joinToString("\n")
+            }
+        }
     }
 
     private fun runDriving(ctx: Context, c: DrivingCommand): String {
