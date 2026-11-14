@@ -79,6 +79,8 @@ class JarviNotificationListener : NotificationListenerService() {
                         DrivingSpeaker.say(this, line)
                     }
                 }
+                // Auto-reply chalu ho to jawab ka draft banao (bhejne se pehle user se poochha jayega)
+                if (announce && n.category == Notification.CATEGORY_MESSAGE) AutoReply.consider(this, sbn, item)
             }
         } catch (e: Exception) {
         }
