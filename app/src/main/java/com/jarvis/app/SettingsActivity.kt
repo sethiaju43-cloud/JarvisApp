@@ -50,6 +50,9 @@ class SettingsActivity : ScreenActivity() {
         container.addView(UiKit.button(c, "📊 AI Dashboard (local vs online, bachat)") {
             startActivity(Intent(c, DashboardActivity::class.java))
         })
+        container.addView(UiKit.button(c, "🧩 Features (driving, auto-reply, reminders, todo)") {
+            startActivity(Intent(c, FeaturesActivity::class.java))
+        })
         val cur = routeNames.firstOrNull { it.first == Prefs.routeMode(c) }?.second ?: ""
         container.addView(UiKit.button(c, "🔀 Model chunav tareeka: $cur") {
             val ids = routeNames.map { it.second }.toTypedArray()

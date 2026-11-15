@@ -66,6 +66,7 @@
         <activity android:name=".VoiceStudioActivity" android:exported="false" />
         <activity android:name=".DesignActivity" android:exported="false" />
         <activity android:name=".DashboardActivity" android:exported="false" />
+        <activity android:name=".FeaturesActivity" android:exported="false" />
         <activity
             android:name=".AssistActivity"
             android:exported="false"
