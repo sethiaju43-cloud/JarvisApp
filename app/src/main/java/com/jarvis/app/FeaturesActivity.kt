@@ -130,6 +130,27 @@ class FeaturesActivity : ScreenActivity() {
         }
         container.addView(ar)
 
+        // ---------- Daily brief ----------
+        container.addView(UiKit.section(c, "🌅 Daily brief"))
+        val br = UiKit.card(c)
+        val briefOn = DailyBrief.isOn(c)
+        br.addView(UiKit.text(c, if (briefOn) "Chalu hai: roz " + BriefLogic.formatTime(DailyBrief.hour(c), DailyBrief.minute(c)) else "Band hai", 14f, true))
+        br.addView(UiKit.text(c, "Roz tay samay par notification: aaj ke reminder aur baaki kaam. Sab phone par hi banta hai, AI ko kuch nahi jata.", 12f, dim = true))
+        br.addView(UiKit.switchRow(c, "Daily brief", briefOn) { on ->
+            if (on) DailyBrief.enable(c, DailyBrief.hour(c), DailyBrief.minute(c)) else DailyBrief.disable(c)
+            rebuild()
+        })
+        br.addView(UiKit.button(c, "⏰ Samay badlo") {
+            android.app.TimePickerDialog(c, { _, h, m ->
+                DailyBrief.enable(c, h, m)
+                rebuild()
+            }, DailyBrief.hour(c), DailyBrief.minute(c), true).show()
+        })
+        br.addView(UiKit.button(c, "👀 Abhi dekho") {
+            UiKit.toast(c, DailyBrief.composeNow(c))
+        })
+        container.addView(br)
+
         // ---------- Reminders ----------
         container.addView(UiKit.section(c, "⏰ Reminders"))
         val rm = UiKit.card(c)

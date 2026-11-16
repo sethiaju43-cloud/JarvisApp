@@ -12,6 +12,7 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             try {
                 Reminders.rescheduleAll(context)
+                DailyBrief.reschedule(context)
             } catch (e: Exception) {
             }
         }

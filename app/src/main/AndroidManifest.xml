@@ -141,5 +141,9 @@
         <receiver
             android:name=".AutoReplyReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".BriefReceiver"
+            android:exported="false" />
     </application>
 </manifest>

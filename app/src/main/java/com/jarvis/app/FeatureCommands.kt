@@ -18,6 +18,8 @@ object FeatureCommands {
         val tz = TimeZone.getDefault()
         val d = DrivingLogic.parse(text)
         if (d != null) return runDriving(ctx, d)
+        val b = BriefLogic.parse(text)
+        if (b != null) return runBrief(ctx, b)
         val ar = AutoReplyLogic.parse(text)
         if (ar != null) return runAutoReply(ctx, ar)
         val r = ReminderLogic.parse(text, now, tz)
@@ -27,6 +29,29 @@ object FeatureCommands {
         val n = NotificationLogic.parseCommand(text)
         if (n != null) return runNotification(ctx, n)
         return null
+    }
+
+    private fun runBrief(ctx: Context, c: BriefCommand): String {
+        return when (c) {
+            is BriefCommand.On -> {
+                DailyBrief.enable(ctx, c.hour, c.minute)
+                var s = "Daily brief chalu 🌅 roz " + BriefLogic.formatTime(c.hour, c.minute) +
+                    ": aaj ke reminder aur baaki kaam ka chhota saar. Band karne ko bolo: 'daily brief band karo'."
+                if (!Reminders.notificationsAllowed(ctx)) {
+                    s += "\n⚠️ Notifications band hain, Settings → Permissions mein 'Notifications' Allow karo."
+                }
+                s
+            }
+            is BriefCommand.Off -> {
+                val was = DailyBrief.isOn(ctx)
+                DailyBrief.disable(ctx)
+                if (was) "Daily brief band ✅" else "Daily brief pehle se band tha 🙂"
+            }
+            is BriefCommand.Status ->
+                if (DailyBrief.isOn(ctx)) "Daily brief chalu hai (roz " + BriefLogic.formatTime(DailyBrief.hour(ctx), DailyBrief.minute(ctx)) + ")"
+                else "Daily brief band hai."
+            is BriefCommand.ShowNow -> DailyBrief.composeNow(ctx)
+        }
     }
 
     private fun runAutoReply(ctx: Context, c: AutoReplyCommand): String {
