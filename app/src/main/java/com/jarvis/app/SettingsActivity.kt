@@ -53,6 +53,9 @@ class SettingsActivity : ScreenActivity() {
         container.addView(UiKit.button(c, "🧩 Features (driving, auto-reply, reminders, todo)") {
             startActivity(Intent(c, FeaturesActivity::class.java))
         })
+        container.addView(UiKit.button(c, "🎭 3D Avatar chuno (Jarvi ka chehra)") {
+            startActivity(Intent(c, AvatarActivity::class.java))
+        })
         val cur = routeNames.firstOrNull { it.first == Prefs.routeMode(c) }?.second ?: ""
         container.addView(UiKit.button(c, "🔀 Model chunav tareeka: $cur") {
             val ids = routeNames.map { it.second }.toTypedArray()

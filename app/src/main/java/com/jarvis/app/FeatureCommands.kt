@@ -20,6 +20,8 @@ object FeatureCommands {
         if (d != null) return runDriving(ctx, d)
         val b = BriefLogic.parse(text)
         if (b != null) return runBrief(ctx, b)
+        val av = AvatarLogic.parse(text)
+        if (av != null) return runAvatar(ctx, av)
         val ar = AutoReplyLogic.parse(text)
         if (ar != null) return runAutoReply(ctx, ar)
         val r = ReminderLogic.parse(text, now, tz)
@@ -29,6 +31,26 @@ object FeatureCommands {
         val n = NotificationLogic.parseCommand(text)
         if (n != null) return runNotification(ctx, n)
         return null
+    }
+
+    private fun runAvatar(ctx: Context, c: AvatarCommand): String {
+        return when (c) {
+            is AvatarCommand.Set ->
+                if (Avatars.apply(ctx, c.id)) {
+                    Avatars.restartFloating(ctx)
+                    "Ab mera chehra: " + AvatarLogic.labelOf(c.id) + " 🎭"
+                } else {
+                    "Ye avatar lag nahi paya 😕"
+                }
+            is AvatarCommand.Reset -> {
+                Avatars.reset(ctx)
+                Avatars.restartFloating(ctx)
+                "Purana Jarvi wala chehra wapas aa gaya ✅"
+            }
+            is AvatarCommand.ShowList ->
+                "Avatar: " + AvatarLogic.all.joinToString(", ") { it.label } +
+                    ". Bolo: 'avatar ninja lagao', ya Settings → 🎭 3D Avatar."
+        }
     }
 
     private fun runBrief(ctx: Context, c: BriefCommand): String {
