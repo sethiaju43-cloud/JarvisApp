@@ -30,6 +30,8 @@ object FeatureCommands {
         if (t != null) return runTodo(ctx, t)
         val n = NotificationLogic.parseCommand(text)
         if (n != null) return runNotification(ctx, n)
+        val ls = LocalSkillsLogic.parse(text)
+        if (ls != null) return LocalSkills.run(ctx, ls)
         return null
     }
 

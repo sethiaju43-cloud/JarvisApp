@@ -609,7 +609,7 @@ object Brain {
         val featureReply = FeatureCommands.handle(context, userText)
         if (featureReply != null) {
             // Notification ka text kabhi AI ki yaaddasht mein nahi jata
-            val note = if (NotificationLogic.parseCommand(userText) != null) "(notification ka jawab diya gaya)" else featureReply
+            val note = if (NotificationLogic.parseCommand(userText) != null || LocalSkillsLogic.isPrivate(userText)) "(local jawab diya gaya)" else featureReply
             noteLocal(context, userText, note)
             return featureReply
         }
