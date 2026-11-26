@@ -219,6 +219,84 @@ class ToolAgentTest {
     }
 
     @Test
+    fun stopBetweenToolsInOneTurn() {
+        val runner = FakeRunner()
+        val llm = FakeLlm(listOf(
+            modelCalls(call("1", "go_home"), call("2", "go_back")),
+            modelText("ok")
+        ))
+        val r = ToolAgent(llm, runner, stop = { runner.ran.size >= 1 }).run(hist)
+        assertTrue(r is AgentResult.Done)
+        assertEquals("Ruk gayi 🛑", (r as AgentResult.Done).text)
+        assertEquals(listOf("go_home"), runner.ran)
+    }
+
+    @Test
+    fun longScreenSnapshotReachesModelButStepIsOneLine() {
+        val snap = "Chat khuli 💬\n" + "x".repeat(1500)
+        val runner = object : ToolRunner {
+            override fun run(call: ToolCall) = ToolOutput(snap)
+        }
+        val llm = FakeLlm(listOf(modelCalls(call("1", "open_app", "{\"name\":\"WhatsApp\"}")), modelText("Khul gayi")))
+        val r = ToolAgent(llm, runner).run(hist) as AgentResult.Done
+        // model ko poora snapshot dikha (1800 ki hadd ke andar)
+        val res = llm.seenTurns[1].last() as ToolTurn.Results
+        assertEquals(snap, res.results[0].content)
+        // user ke "step" mein sirf pehli line
+        assertEquals(listOf("Chat khuli 💬"), r.steps)
+    }
+
+    @Test
+    fun hugeResultIsCut() {
+        val runner = object : ToolRunner {
+            override fun run(call: ToolCall) = ToolOutput("y".repeat(5000))
+        }
+        val llm = FakeLlm(listOf(modelCalls(call("1", "go_home")), modelText("ok")))
+        ToolAgent(llm, runner, resultLimit = 1000).run(hist)
+        val res = llm.seenTurns[1].last() as ToolTurn.Results
+        assertEquals(1003, res.results[0].content.length)
+    }
+
+    @Test
+    fun traceRecordsWhatHappened() {
+        val llm = FakeLlm(listOf(
+            modelCalls(call("1", "set_torch", "{\"on\":true}"), call("2", "wipe_device")),
+            modelText("done")
+        ))
+        val agent = ToolAgent(llm, FakeRunner())
+        agent.run(hist)
+        val t = agent.trace.joinToString("\n")
+        assertTrue(t.contains("round 1"))
+        assertTrue(t.contains("model -> set_torch"))
+        assertTrue(t.contains("result set_torch: done set_torch"))
+        assertTrue(t.contains("REJECT wipe_device"))
+        assertTrue(t.contains("round 2"))
+        assertFalse(t.contains("\n\n"))
+    }
+
+    @Test
+    fun traceKeepsOnlyRecentLines() {
+        val replies = ArrayList<ToolTurn.Model?>()
+        for (i in 1..30) replies.add(modelCalls(call("c$i", "scroll_screen", "{\"direction\":\"down\",\"times\":${(i % 12) + 1}}"), call("d$i", "go_back")))
+        val agent = ToolAgent(FakeLlm(replies), FakeRunner(), maxRounds = 30, maxCalls = 1000)
+        agent.run(hist)
+        assertTrue(agent.trace.size <= 60)
+    }
+
+    @Test
+    fun modelFailMidwayIsTraced() {
+        val agent = ToolAgent(FakeLlm(listOf(modelCalls(call("1", "go_home")), null)), FakeRunner())
+        agent.run(hist)
+        assertTrue(agent.trace.any { it.startsWith("MODEL FAIL") })
+    }
+
+    @Test
+    fun rulesMentionRetryAndScreenNow() {
+        assertTrue(ToolPrompt.RULES.contains("SCREEN NOW"))
+        assertTrue(ToolPrompt.RULES.contains("😕"))
+    }
+
+    @Test
     fun untrustedWrapperAndRules() {
         val w = ToolPrompt.untrusted("SCREEN TEXT", "hello")
         assertTrue(w.contains("untrusted"))

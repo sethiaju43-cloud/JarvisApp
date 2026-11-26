@@ -591,6 +591,9 @@ object Brain {
         if (st1 !== st0) Prefs.saveStyle(context, st1)
 
         // "yaad rakho ki ..." seedha command
+        // TOOLS-P4: debug ke liye pichla tool-mode trace
+        if (userText.trim().lowercase() == "tool trace") return ToolBrain.traceReport()
+
         val ex = ExplicitMemory.extract(userText)
         if (ex != null) {
             val r = rememberExplicit(context, ex)

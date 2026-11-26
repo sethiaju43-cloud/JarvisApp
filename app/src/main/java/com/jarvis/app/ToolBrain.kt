@@ -15,17 +15,34 @@ object ToolBrain {
 
     fun enabled(ctx: Context): Boolean = Prefs.bool(ctx, "tools_mode", false)
 
+    /** Pichle tool-mode kaam ka trace (memory mein, "tool trace" bolne par dikhta hai) */
+    @Volatile
+    var lastTrace: String = ""
+
+    fun traceReport(): String =
+        if (lastTrace.isBlank()) "Abhi tak tool-mode ka koi kaam nahi hua." else "Pichla tool-mode trace:\n" + lastTrace
+
     fun system(ctx: Context, timeLine: String, memLine: String): String =
         Prompts.chatOnly(ctx, Task.CHAT, timeLine, memLine) + ToolPrompt.RULES
 
     /** null = tool path use nahi ho sakta (koi online provider nahi), Brain purane tareeke se chale */
     fun run(ctx: Context, history: List<Pair<String, String>>, system: String, stop: () -> Boolean): AgentResult? {
         val llm = AndroidToolLlm(ctx, system)
-        if (!llm.hasCandidates()) return null
+        if (!llm.hasCandidates()) {
+            lastTrace = "Koi online provider available nahi (tool mode skip hua, purana tareeka chala)."
+            return null
+        }
         val confirm = ctx.applicationContext.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
             .getBoolean("confirm_send", true)
         val agent = ToolAgent(llm, AndroidToolRunner(ctx), confirm, stop = stop)
-        return agent.run(ContextTrimmer.trim(history, 6000))
+        val res = agent.run(ContextTrimmer.trim(history, 6000))
+        val tail = when (res) {
+            is AgentResult.Done -> "DONE: " + res.text.take(120)
+            is AgentResult.NeedConfirm -> "NEED CONFIRM: " + res.line
+            is AgentResult.Failed -> "FAILED (purana tareeka chalega): " + res.reason
+        }
+        lastTrace = (agent.trace + tail).joinToString("\n")
+        return res
     }
 }
 
@@ -175,11 +192,24 @@ class AndroidToolRunner(private val ctx: Context) : ToolRunner {
         val res = PhoneActions.interpret(ctx, line)
         if (call.name in uiTools) {
             try {
-                Thread.sleep(1200)
+                Thread.sleep(1500)
             } catch (e: InterruptedException) {
             }
         }
-        return ToolOutput(res)
+        // Screen badalne wale kaam ke baad nayi screen ka text saath bhejo: model ko alag read_screen_text nahi bulana padta
+        val snap = if (call.name in screenAfter) screenSnapshot() else ""
+        return ToolOutput(if (snap.isEmpty()) res else res + "\n" + snap)
+    }
+
+    private val screenAfter = setOf("open_app", "tap_text", "type_text", "scroll_screen", "go_home", "go_back", "open_recents")
+
+    private fun screenSnapshot(): String {
+        if (!Prefs.screenToAi(ctx)) return ""
+        val svc = JarvisAccessibilityService.instance ?: return ""
+        if (svc.isPrivateApp()) return "(Ab private app khula hai, iski screen nahi padh sakti.)"
+        val s = svc.readScreenText()
+        if (s.isBlank()) return ""
+        return ToolPrompt.untrusted("SCREEN NOW", s.take(1200))
     }
 
     private fun readScreen(): ToolOutput {
