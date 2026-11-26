@@ -55,7 +55,7 @@ object ToolBrain {
     }
 }
 
-class AndroidToolLlm(private val ctx: Context, private val system: String) : ToolLlm {
+class AndroidToolLlm(private val ctx: Context, private val system: String, private val task: Task = Task.PHONE) : ToolLlm {
 
     private class Cand(val providerId: String, val model: String)
 
@@ -65,7 +65,7 @@ class AndroidToolLlm(private val ctx: Context, private val system: String) : Too
 
     init {
         try {
-            for (b in ModelRouter.plan(ctx, Task.PHONE, false)) {
+            for (b in ModelRouter.plan(ctx, task, false)) {
                 if (b.isLocal) continue
                 val pid = b.id.substringBefore("|")
                 val model = b.id.substringAfter("|", "")
@@ -195,6 +195,9 @@ class AndroidToolRunner(private val ctx: Context) : ToolRunner {
                 "share_text" -> shareText(call.args.optString("text", ""))
                 "compose_email" -> composeEmail(call.args)
                 "open_dialer" -> openDialer(call.args.optString("number", ""))
+                "start_background_task" -> ToolOutput(SubAgentRunner.start(ctx, call.args.optString("kind", ""), call.args.optString("brief", "")))
+                "job_status" -> ToolOutput(ToolPrompt.untrusted("BACKGROUND TASK", SubAgentRunner.status(call.args.optInt("id", 0))), silent = true)
+                "cancel_job" -> ToolOutput(SubAgentRunner.cancel(call.args.optInt("id", 0)))
                 else -> legacy(call)
             }
         } catch (e: Exception) {

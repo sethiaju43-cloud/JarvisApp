@@ -89,6 +89,18 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun p6BackgroundTools() {
+        assertTrue(ToolRegistry.coreTools().map { it.name }.contains("start_background_task"))
+        assertEquals("extra", ToolRegistry.get("job_status")!!.group)
+        assertEquals("extra", ToolRegistry.get("cancel_job")!!.group)
+        assertEquals("job_status", ToolRegistry.search("background research status").first().name)
+        assertTrue(ToolRegistry.search("stop the background job").map { it.name }.contains("cancel_job"))
+        assertTrue(ToolRegistry.coreTools().size in 15..30)
+        // start_background_task ke baare mein model ko saaf bataya gaya hai ki chhote sawal ke liye nahi
+        assertTrue(ToolRegistry.get("start_background_task")!!.description.contains("Do not use it for quick questions"))
+    }
+
+    @Test
     fun legacyLines() {
         assertEquals("OPEN: WhatsApp", line("open_app", "{\"name\":\"WhatsApp\"}"))
         assertEquals("ACTION: HOME", line("go_home"))
@@ -126,7 +138,8 @@ class ToolRegistryTest {
             "read_screen_text", "search_web", "get_current_time", "remember_fact", "find_tool",
             "media_control", "add_reminder", "calculate", "set_ringer_mode", "copy_to_clipboard", "now_playing",
             "show_alarms", "list_reminders", "cancel_reminder", "add_todo", "list_todos",
-            "set_driving_mode", "recall_memory", "share_text", "compose_email", "open_dialer"
+            "set_driving_mode", "recall_memory", "share_text", "compose_email", "open_dialer",
+            "start_background_task", "job_status", "cancel_job"
         )) assertNull(n, line(n))
         assertNull(line("no_such_tool"))
     }

@@ -82,6 +82,14 @@ object ToolRegistry {
                 boolP("repeat_daily", "true to repeat every day", required = false)
             )
         ),
+        tool(
+            "start_background_task",
+            "Start a big task in a separate background agent: deep research, long writing, or a detailed plan. It runs for several minutes while the user keeps chatting, and the user gets a notification when it is done. Do not use it for quick questions.",
+            listOf(
+                strP("kind", "Type of task", enumValues = listOf("research", "writing", "plan")),
+                strP("brief", "Full description of what to research, write or plan, with all details the user gave", maxLen = 600)
+            )
+        ),
         tool("play_music", "Play a song or artist.", listOf(strP("query", "Song or artist name", maxLen = 120))),
         tool("search_web", "Search the web for current information and return a short answer.", listOf(strP("query", "Search query", maxLen = 200))),
         tool("get_current_time", "Get the current date and time on the phone."),
@@ -162,6 +170,16 @@ object ToolRegistry {
                 strP("to", "Recipient email address", required = false, maxLen = 120, pattern = EMAIL_PATTERN)
             ),
             group = "extra", kw = listOf("email", "mail", "gmail")
+        ),
+        tool(
+            "job_status", "Check how a background task is going, or read its result when it is done. Without a number it shows the latest one.",
+            listOf(intP("id", "Task number", 1, 9999, required = false)),
+            group = "extra", kw = listOf("job", "status", "background", "progress", "research", "result", "hua")
+        ),
+        tool(
+            "cancel_job", "Stop a running background task. Without a number it stops the latest running one.",
+            listOf(intP("id", "Task number", 1, 9999, required = false)),
+            group = "extra", kw = listOf("cancel", "stop", "job", "background", "research", "band")
         ),
         tool(
             "open_dialer", "Open the phone dialer with a number filled in, without calling.",

@@ -297,6 +297,58 @@ class ToolAgentTest {
     }
 
     @Test
+    fun onlyAllowedToolsAreOffered() {
+        val llm = FakeLlm(listOf(modelCalls(call("1", "go_home"), call("2", "get_current_time")), modelText("ok")))
+        val runner = FakeRunner()
+        ToolAgent(llm, runner, toolNames = SubAgent.READ_ONLY_TOOLS).run(hist)
+        assertEquals(SubAgent.READ_ONLY_TOOLS, llm.seenTools[0].toSet())
+        assertEquals(listOf("get_current_time"), runner.ran)
+    }
+
+    @Test
+    fun readOnlyAgentCanNeverCallPhoneTools() {
+        val llm = FakeLlm(listOf(
+            modelCalls(
+                call("1", "make_call", "{\"target\":\"Rahul\"}"),
+                call("2", "send_sms", "{\"to\":\"Rahul\",\"message\":\"hi\"}"),
+                call("3", "tap_text", "{\"text\":\"Send\"}"),
+                call("4", "type_text", "{\"text\":\"x\"}")
+            ),
+            modelText("Ye nahi kar sakta")
+        ))
+        val runner = FakeRunner()
+        val r = ToolAgent(llm, runner, toolNames = SubAgent.READ_ONLY_TOOLS).run(hist)
+        assertTrue(r is AgentResult.Done)
+        assertTrue(runner.ran.isEmpty())
+    }
+
+    @Test
+    fun finalizeOnLimitAsksForPlainAnswer() {
+        val llm = FakeLlm(listOf(
+            modelCalls(call("1", "search_web", "{\"query\":\"a\"}")),
+            modelCalls(call("2", "search_web", "{\"query\":\"b\"}")),
+            modelCalls(call("3", "search_web", "{\"query\":\"c\"}")),
+            modelText("Final saar")
+        ))
+        val r = ToolAgent(llm, FakeRunner(), maxRounds = 3, finalizeOnLimit = true, toolNames = setOf("search_web")).run(hist)
+        assertEquals("Final saar", (r as AgentResult.Done).text)
+        assertEquals(4, llm.calls)
+        // aakhri baar mein koi tool nahi diya gaya
+        assertTrue(llm.seenTools[3].isEmpty())
+    }
+
+    @Test
+    fun withoutFinalizeLimitGivesLastStep() {
+        val llm = FakeLlm(listOf(
+            modelCalls(call("1", "search_web", "{\"query\":\"a\"}")),
+            modelCalls(call("2", "search_web", "{\"query\":\"b\"}"))
+        ))
+        val r = ToolAgent(llm, FakeRunner(), maxRounds = 2, toolNames = setOf("search_web")).run(hist) as AgentResult.Done
+        assertEquals("done search_web", r.text)
+        assertEquals(2, llm.calls)
+    }
+
+    @Test
     fun untrustedWrapperAndRules() {
         val w = ToolPrompt.untrusted("SCREEN TEXT", "hello")
         assertTrue(w.contains("untrusted"))

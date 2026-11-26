@@ -39,6 +39,7 @@ object ToolPrompt {
             " Agar diye gaye tools se kaam na ho to find_tool use karo." +
             " Screen wale kaam ke baad nateeje mein nayi screen ka text (SCREEN NOW) mil sakta hai: use dekh kar agla kadam socho." +
             " Agar koi step fail ho (😕), ek baar doosra tareeka try karo (jaise read_screen_text dekh kar sahi naam se tap_text), phir bhi na ho to user ko saaf batao." +
+            " Bade kaam (gehri research, lamba likhna, plan) ke liye start_background_task use karo: wo background mein chalta hai, user baat karta rahe, poora hone par notification aata hai. Chhote sawal ke liye use mat chalao. Uska haal job_status se (find_tool se milta hai)." +
             " Kaam hone ke baad ek chhota Hinglish jawab do, bina markdown."
 
     fun untrusted(label: String, body: String): String =
@@ -52,6 +53,8 @@ class ToolAgent(
     private val maxRounds: Int = 8,
     private val maxCalls: Int = 14,
     private val resultLimit: Int = 1800,
+    private val finalizeOnLimit: Boolean = false,
+    private val toolNames: Collection<String>? = null,
     private val stop: () -> Boolean = { false }
 ) {
 
@@ -77,7 +80,12 @@ class ToolAgent(
     fun run(history: List<Pair<String, String>>): AgentResult {
         val turns = toTurns(history)
         val offered = LinkedHashSet<String>()
-        for (t in ToolRegistry.coreTools()) offered.add(t.name)
+        val only = toolNames
+        if (only != null) {
+            for (n in only) offered.add(n)
+        } else {
+            for (t in ToolRegistry.coreTools()) offered.add(t.name)
+        }
         val steps = ArrayList<String>()
         val seen = HashMap<String, Int>()
         var executed = 0
@@ -156,6 +164,17 @@ class ToolAgent(
                 results.add(ToolResult(call.id, call.name, text))
             }
             turns.add(ToolTurn.Results(results))
+        }
+        // Round ki hadd poori: sub-agent ko ek aakhri baar bina tool ke final jawab likhne do
+        if (finalizeOnLimit && executed > 0 && !stop()) {
+            turns.add(ToolTurn.User("Ab tak mile nateejon se final jawab do. Ab koi tool mat chalao."))
+            try {
+                val last = llm.next(turns, emptyList())
+                note("finalize")
+                if (last.text.isNotBlank()) return AgentResult.Done(last.text, steps)
+            } catch (e: ToolAdapterException) {
+                note("FINALIZE FAIL: " + (e.message ?: ""))
+            }
         }
         return AgentResult.Done(steps.lastOrNull() ?: "Kaam poora nahi ho paya 😕", steps)
     }

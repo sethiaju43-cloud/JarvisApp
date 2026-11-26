@@ -722,9 +722,9 @@ object Brain {
 
         // TOOLS-P1: naya tool-calling dimaag (Settings mein beta switch ON ho tab, sirf phone-kaam par).
         // Koi dikkat ho to null/Failed aata hai aur neeche ka purana tareeka chalta hai.
-        // TOOLS-P5: web-search wale sawaal purane tareeke se (Gemini grounding + sources + self-check)
-        if (ToolBrain.enabled(context) && (task == Task.PHONE || ActionWords.any(userText)) && imageB64 == null && !stopFlag &&
-            !TaskClassifier.needsSearch(userText)
+        // TOOLS-P6: web-search wale sawaal purane tareeke se (Gemini grounding + sources), par research/likhai jaise bade kaam tool path se
+        if (ToolBrain.enabled(context) && imageB64 == null && !stopFlag &&
+            (JobIntent.looksLikeJob(userText) || ((task == Task.PHONE || ActionWords.any(userText)) && !TaskClassifier.needsSearch(userText)))
         ) {
             val tres = ToolBrain.run(context, mergeSame(base), ToolBrain.system(context, timeLine, memLine), { stopFlag })
             if (tres is AgentResult.Done) {

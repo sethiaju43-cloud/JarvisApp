@@ -168,6 +168,19 @@ class ToolPolicyTest {
     }
 
     @Test
+    fun p6BackgroundArgs() {
+        val c = allow("start_background_task", "{\"kind\":\"Research\",\"brief\":\"electric cars ka future\"}")
+        assertEquals("research", c.args.getString("kind"))
+        assertEquals("bad_arg", rejectCode("start_background_task", "{\"kind\":\"hack\",\"brief\":\"x\"}"))
+        assertEquals("missing_arg", rejectCode("start_background_task", "{\"kind\":\"plan\"}"))
+        assertEquals("bad_arg", rejectCode("start_background_task", "{\"kind\":\"plan\",\"brief\":\"" + "a".repeat(700) + "\"}"))
+        allow("job_status")
+        assertEquals(3, allow("job_status", "{\"id\":3}").args.getInt("id"))
+        assertEquals("bad_arg", rejectCode("job_status", "{\"id\":0}"))
+        allow("cancel_job")
+    }
+
+    @Test
     fun extraArgsAreDropped() {
         val c = allow("go_home", "{\"sneaky\":\"value\"}")
         assertTrue(!c.args.has("sneaky"))
