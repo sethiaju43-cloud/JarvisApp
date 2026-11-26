@@ -29,6 +29,8 @@ object ToolRegistry {
     const val TIME_PATTERN = "^([01]?[0-9]|2[0-3]):[0-5][0-9]$"
     const val EVENT_PATTERN = "^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}$"
     const val URL_PATTERN = "^https?://\\S+$"
+    const val DIAL_PATTERN = "^[+0-9 ()-]{3,20}$"
+    const val EMAIL_PATTERN = "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
 
     val all: List<ToolSpec> = listOf(
         // ---- core ----
@@ -136,7 +138,36 @@ object ToolRegistry {
             listOf(strP("text", "The task", maxLen = 200)),
             group = "extra", kw = listOf("todo", "task", "list", "kaam")
         ),
-        tool("list_todos", "Read the pending to-do items.", group = "extra", kw = listOf("todo", "tasks", "list", "kaam"))
+        tool("list_todos", "Read the pending to-do items.", group = "extra", kw = listOf("todo", "tasks", "list", "kaam")),
+        tool(
+            "set_driving_mode", "Turn driving mode on or off (short spoken answers, new messages read aloud).",
+            listOf(boolP("on", "true = on, false = off")),
+            group = "extra", kw = listOf("driving", "drive", "car", "gaadi")
+        ),
+        tool(
+            "recall_memory", "Look up what the user asked you to remember earlier.",
+            listOf(strP("query", "What to look for", maxLen = 120)),
+            group = "extra", kw = listOf("memory", "remember", "yaad", "recall", "told")
+        ),
+        tool(
+            "share_text", "Open the share sheet to send text through any app. The user picks the app and sends it themselves.",
+            listOf(strP("text", "Text to share", maxLen = 1000)),
+            group = "extra", kw = listOf("share", "send", "forward")
+        ),
+        tool(
+            "compose_email", "Open an email draft in the mail app. Nothing is sent until the user presses send.",
+            listOf(
+                strP("subject", "Email subject", maxLen = 150),
+                strP("body", "Email text", maxLen = 2000),
+                strP("to", "Recipient email address", required = false, maxLen = 120, pattern = EMAIL_PATTERN)
+            ),
+            group = "extra", kw = listOf("email", "mail", "gmail")
+        ),
+        tool(
+            "open_dialer", "Open the phone dialer with a number filled in, without calling.",
+            listOf(strP("number", "Phone number", maxLen = 20, pattern = DIAL_PATTERN)),
+            group = "extra", kw = listOf("dial", "dialer", "number", "keypad")
+        )
     )
 
     private val byName: Map<String, ToolSpec> = all.associateBy { it.name }

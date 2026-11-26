@@ -1,6 +1,8 @@
 package com.jarvis.app
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -27,6 +29,13 @@ object ToolBrain {
 
     /** null = tool path use nahi ho sakta (koi online provider nahi), Brain purane tareeke se chale */
     fun run(ctx: Context, history: List<Pair<String, String>>, system: String, stop: () -> Boolean): AgentResult? {
+        // Budget yahan bhi lagu hai (router jaisa): limit poori ho to purana tareeka chale (wo local model ya budget message dega)
+        val budget = Budget.state(ctx)
+        if (budget.exceeded) {
+            lastTrace = "Budget poora ho gaya: tool mode skip hua, purana tareeka chala."
+            return null
+        }
+        Budget.alertOnce(ctx, budget)?.let { ModelRouter.onStatus?.invoke(it) }
         val llm = AndroidToolLlm(ctx, system)
         if (!llm.hasCandidates()) {
             lastTrace = "Koi online provider available nahi (tool mode skip hua, purana tareeka chala)."
@@ -74,6 +83,7 @@ class AndroidToolLlm(private val ctx: Context, private val system: String) : Too
     fun hasCandidates(): Boolean = cands.isNotEmpty()
 
     override fun next(turns: List<ToolTurn>, tools: List<ToolSpec>): ToolTurn.Model {
+        if (Budget.state(ctx).exceeded) throw ToolAdapterException("Budget poora ho gaya")
         var lastErr = "koi provider nahi"
         for (c in cands) {
             val k = c.providerId + "|" + c.model
@@ -180,6 +190,11 @@ class AndroidToolRunner(private val ctx: Context) : ToolRunner {
                 "cancel_reminder" -> cancelReminder(call.args.optInt("number", 0))
                 "add_todo" -> addTodo(call.args.optString("text", ""))
                 "list_todos" -> listTodos()
+                "set_driving_mode" -> drivingMode(call.args.optBoolean("on", true))
+                "recall_memory" -> recall(call.args.optString("query", ""))
+                "share_text" -> shareText(call.args.optString("text", ""))
+                "compose_email" -> composeEmail(call.args)
+                "open_dialer" -> openDialer(call.args.optString("number", ""))
                 else -> legacy(call)
             }
         } catch (e: Exception) {
@@ -306,6 +321,59 @@ class AndroidToolRunner(private val ctx: Context) : ToolRunner {
         val sb = StringBuilder()
         for ((i, t) in pending.withIndex()) sb.append(i + 1).append(") ").append(t.text).append("\n")
         return ToolOutput(sb.toString().trim(), silent = true)
+    }
+
+    private fun launch(i: Intent): Boolean {
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return try {
+            ctx.startActivity(i)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun drivingMode(on: Boolean): ToolOutput {
+        if (on) {
+            DrivingMode.turnOn(ctx)
+            var s = "Driving mode chalu 🚗 (" + DrivingMode.DEFAULT_HOURS + " ghante ke liye). Ab chhote jawab aur naye message bolkar sunaungi. Dhyan se chalana 🙏"
+            if (!JarviNotificationListener.isEnabled(ctx)) {
+                s += "\n(Message sunane ke liye Settings -> Permissions -> 'Notification access' Allow karo.)"
+            }
+            return ToolOutput(s)
+        }
+        val was = DrivingMode.isOn(ctx)
+        DrivingMode.turnOff(ctx)
+        return ToolOutput(if (was) "Driving mode band ✅" else "Driving mode pehle se band tha 🙂")
+    }
+
+    private fun recall(q: String): ToolOutput {
+        val l = MemoryStore.contextLine(ctx, q)
+        if (l.isBlank()) return ToolOutput("Is baare mein mujhe kuch yaad nahi.", silent = true)
+        return ToolOutput(ToolPrompt.untrusted("MEMORY", l), silent = true)
+    }
+
+    private fun shareText(text: String): ToolOutput {
+        val i = Intent(Intent.ACTION_SEND)
+        i.type = "text/plain"
+        i.putExtra(Intent.EXTRA_TEXT, text)
+        return if (launch(Intent.createChooser(i, "Share"))) ToolOutput("Share menu khol diya 📤 App chuno aur bhej do.")
+        else ToolOutput("Share menu nahi khul paya 😕")
+    }
+
+    private fun composeEmail(a: JSONObject): ToolOutput {
+        val to = a.optString("to", "")
+        val i = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + Uri.encode(to)))
+        i.putExtra(Intent.EXTRA_SUBJECT, a.optString("subject", ""))
+        i.putExtra(Intent.EXTRA_TEXT, a.optString("body", ""))
+        return if (launch(i)) ToolOutput("Email ka draft khol diya ✉️ Bhejna aapko hai, maine kuch bheja nahi.")
+        else ToolOutput("Email app nahi khul paya 😕")
+    }
+
+    private fun openDialer(number: String): ToolOutput {
+        val i = Intent(Intent.ACTION_DIAL, Uri.parse("tel:" + Uri.encode(number)))
+        return if (launch(i)) ToolOutput("Dialer khol diya 📞 (call lagayi nahi, aap dabaoge to lagegi)")
+        else ToolOutput("Dialer nahi khul paya 😕")
     }
 
     private fun findTool(q: String): ToolOutput {

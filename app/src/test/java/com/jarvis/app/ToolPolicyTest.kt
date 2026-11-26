@@ -152,6 +152,22 @@ class ToolPolicyTest {
     }
 
     @Test
+    fun p5EmailDialerShareArgs() {
+        allow("compose_email", "{\"subject\":\"Hi\",\"body\":\"Namaste\"}")
+        assertEquals("a@b.com", allow("compose_email", "{\"subject\":\"Hi\",\"body\":\"x\",\"to\":\"a@b.com\"}").args.getString("to"))
+        assertEquals("bad_arg", rejectCode("compose_email", "{\"subject\":\"Hi\",\"body\":\"x\",\"to\":\"not an email\"}"))
+        assertEquals("missing_arg", rejectCode("compose_email", "{\"subject\":\"Hi\"}"))
+        assertEquals("+91 98765-43210", allow("open_dialer", "{\"number\":\"+91 98765-43210\"}").args.getString("number"))
+        assertEquals("9876543210", allow("open_dialer", "{\"number\":9876543210}").args.getString("number"))
+        assertEquals("bad_arg", rejectCode("open_dialer", "{\"number\":\"12\"}"))
+        assertEquals("bad_arg", rejectCode("open_dialer", "{\"number\":\"call me\"}"))
+        assertEquals("bad_arg", rejectCode("open_dialer", "{\"number\":\"*#06#abc\"}"))
+        allow("share_text", "{\"text\":\"dekho ye\"}")
+        assertTrue(allow("set_driving_mode", "{\"on\":\"true\"}").args.getBoolean("on"))
+        allow("recall_memory", "{\"query\":\"meri pasand\"}")
+    }
+
+    @Test
     fun extraArgsAreDropped() {
         val c = allow("go_home", "{\"sneaky\":\"value\"}")
         assertTrue(!c.args.has("sneaky"))

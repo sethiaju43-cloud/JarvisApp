@@ -722,7 +722,10 @@ object Brain {
 
         // TOOLS-P1: naya tool-calling dimaag (Settings mein beta switch ON ho tab, sirf phone-kaam par).
         // Koi dikkat ho to null/Failed aata hai aur neeche ka purana tareeka chalta hai.
-        if (ToolBrain.enabled(context) && (task == Task.PHONE || ActionWords.any(userText)) && imageB64 == null && !stopFlag) {
+        // TOOLS-P5: web-search wale sawaal purane tareeke se (Gemini grounding + sources + self-check)
+        if (ToolBrain.enabled(context) && (task == Task.PHONE || ActionWords.any(userText)) && imageB64 == null && !stopFlag &&
+            !TaskClassifier.needsSearch(userText)
+        ) {
             val tres = ToolBrain.run(context, mergeSame(base), ToolBrain.system(context, timeLine, memLine), { stopFlag })
             if (tres is AgentResult.Done) {
                 val tt = tres.text.replace(moreRegex, "").trim()

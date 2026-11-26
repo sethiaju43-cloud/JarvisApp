@@ -77,6 +77,18 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun p5ToolsAreExtraAndFindable() {
+        for (n in listOf("set_driving_mode", "recall_memory", "share_text", "compose_email", "open_dialer")) {
+            assertEquals(n, "extra", ToolRegistry.get(n)!!.group)
+        }
+        assertTrue(ToolRegistry.search("driving car mode").map { it.name }.contains("set_driving_mode"))
+        assertEquals("compose_email", ToolRegistry.search("send email gmail").first().name)
+        assertEquals("open_dialer", ToolRegistry.search("dialer number").first().name)
+        assertTrue(ToolRegistry.search("what did i tell you to remember").map { it.name }.contains("recall_memory"))
+        assertTrue(ToolRegistry.coreTools().size in 15..30)
+    }
+
+    @Test
     fun legacyLines() {
         assertEquals("OPEN: WhatsApp", line("open_app", "{\"name\":\"WhatsApp\"}"))
         assertEquals("ACTION: HOME", line("go_home"))
@@ -113,7 +125,8 @@ class ToolRegistryTest {
         for (n in listOf(
             "read_screen_text", "search_web", "get_current_time", "remember_fact", "find_tool",
             "media_control", "add_reminder", "calculate", "set_ringer_mode", "copy_to_clipboard", "now_playing",
-            "show_alarms", "list_reminders", "cancel_reminder", "add_todo", "list_todos"
+            "show_alarms", "list_reminders", "cancel_reminder", "add_todo", "list_todos",
+            "set_driving_mode", "recall_memory", "share_text", "compose_email", "open_dialer"
         )) assertNull(n, line(n))
         assertNull(line("no_such_tool"))
     }
