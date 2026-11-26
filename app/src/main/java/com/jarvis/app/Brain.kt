@@ -717,6 +717,22 @@ object Brain {
         val base = ArrayList<Pair<String, String>>(mem)
         base.add(Pair("user", userText + extra + (if (multi) Prompts.MULTI_HINT else "")))
 
+        // TOOLS-P1: naya tool-calling dimaag (Settings mein beta switch ON ho tab, sirf phone-kaam par).
+        // Koi dikkat ho to null/Failed aata hai aur neeche ka purana tareeka chalta hai.
+        if (ToolBrain.enabled(context) && (task == Task.PHONE || ActionWords.any(userText)) && imageB64 == null && !stopFlag) {
+            val tres = ToolBrain.run(context, mergeSame(base), ToolBrain.system(context, timeLine, memLine), { stopFlag })
+            if (tres is AgentResult.Done) {
+                val tt = tres.text.replace(moreRegex, "").trim()
+                val shown = if (tt.isBlank()) "Ho gaya ✅" else tt
+                noteLocal(context, userText, shown)
+                return shown
+            } else if (tres is AgentResult.NeedConfirm) {
+                setPending(tres.line)
+                noteLocal(context, userText, tres.question)
+                return tres.question
+            }
+        }
+
         val first = askWith(context, mergeSame(base), task, sysOnline, sysLocal, needSearch, imageB64, searchQ)
         if (!first.ok) {
             lastReplyWasError = true

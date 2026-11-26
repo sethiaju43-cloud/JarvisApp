@@ -129,7 +129,16 @@ object ToolPolicy {
         if (spec.risk == ToolRisk.CONFIRM) {
             return ToolDecision.Confirm(clean, confirmQuestion(clean))
         }
+        // Screen par "Send" dabane se pehle bhi poochho (purane Brain jaisa niyam)
+        if (name == "tap_text" && isSendLabel(norm.getString("text"))) {
+            return ToolDecision.Confirm(clean, "Send dabaun? (haan / nahi)")
+        }
         return ToolDecision.Allow(clean)
+    }
+
+    fun isSendLabel(text: String): Boolean {
+        val n = text.trim().lowercase()
+        return n.startsWith("send") || n.contains("bhej") || n.contains("भेज") || n.contains("सेंड")
     }
 
     /** User se poochne wala sawal (Hinglish) */

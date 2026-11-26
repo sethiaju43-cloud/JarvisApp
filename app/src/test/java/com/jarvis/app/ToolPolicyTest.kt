@@ -126,6 +126,16 @@ class ToolPolicyTest {
     }
 
     @Test
+    fun tappingSendNeedsConfirmation() {
+        for (label in listOf("Send", "send message", "Bhejo", "भेजें", "सेंड")) {
+            val d = ToolPolicy.check(call("tap_text", "{\"text\":\"$label\"}"))
+            assertTrue(label, d is ToolDecision.Confirm)
+        }
+        allow("tap_text", "{\"text\":\"Play\"}")
+        allow("tap_text", "{\"text\":\"Cancel\"}")
+    }
+
+    @Test
     fun extraArgsAreDropped() {
         val c = allow("go_home", "{\"sneaky\":\"value\"}")
         assertTrue(!c.args.has("sneaky"))

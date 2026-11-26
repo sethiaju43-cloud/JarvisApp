@@ -163,6 +163,7 @@ class SettingsActivity : ScreenActivity() {
         container.addView(UiKit.switchRow(c, "Khud se bolna (idle talk)", sp.getBoolean("idle_talk", true)) { sp.edit().putBoolean("idle_talk", it).apply() })
         container.addView(UiKit.switchRow(c, "Chup rehne par poochna (check-in)", sp.getBoolean("checkin", true)) { sp.edit().putBoolean("checkin", it).apply() })
         container.addView(UiKit.switchRow(c, "SMS/call/WhatsApp bhejne se pehle poochna", sp.getBoolean("confirm_send", true)) { sp.edit().putBoolean("confirm_send", it).apply() })
+        container.addView(UiKit.switchRow(c, "Naya tool-calling brain (beta)", sp.getBoolean("tools_mode", false)) { sp.edit().putBoolean("tools_mode", it).apply() })
         container.addView(UiKit.switchRow(c, "Phone chalu hone par khud shuru", sp.getBoolean("auto_start", false)) { sp.edit().putBoolean("auto_start", it).apply() })
         container.addView(UiKit.text(c, "WhatsApp country code (10 ank wale number ke aage)", 13f, dim = true))
         val cc = UiKit.input(c, "91", sp.getString("country_code", "91") ?: "91")
