@@ -136,6 +136,22 @@ class ToolPolicyTest {
     }
 
     @Test
+    fun p2ReminderAndMediaArgs() {
+        val c = allow("add_reminder", "{\"message\":\"dawai\",\"datetime\":\"2026-12-01T09:00\"}")
+        assertEquals("2026-12-01 09:00", c.args.getString("datetime"))
+        assertTrue(!c.args.has("repeat_daily"))
+        assertTrue(allow("add_reminder", "{\"message\":\"dawai\",\"datetime\":\"2026-12-01 09:00\",\"repeat_daily\":\"true\"}").args.getBoolean("repeat_daily"))
+        assertEquals("bad_arg", rejectCode("add_reminder", "{\"message\":\"x\",\"datetime\":\"kal subah\"}"))
+        assertEquals("missing_arg", rejectCode("add_reminder", "{\"message\":\"x\"}"))
+        assertEquals("pause", allow("media_control", "{\"action\":\"PAUSE\"}").args.getString("action"))
+        assertEquals("bad_arg", rejectCode("media_control", "{\"action\":\"explode\"}"))
+        assertEquals("bad_arg", rejectCode("set_ringer_mode", "{\"mode\":\"loud\"}"))
+        assertEquals("silent", allow("set_ringer_mode", "{\"mode\":\"Silent\"}").args.getString("mode"))
+        assertEquals("bad_arg", rejectCode("cancel_reminder", "{\"number\":0}"))
+        assertEquals(3, allow("cancel_reminder", "{\"number\":3}").args.getInt("number"))
+    }
+
+    @Test
     fun extraArgsAreDropped() {
         val c = allow("go_home", "{\"sneaky\":\"value\"}")
         assertTrue(!c.args.has("sneaky"))

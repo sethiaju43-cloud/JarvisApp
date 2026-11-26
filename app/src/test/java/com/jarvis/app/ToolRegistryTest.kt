@@ -56,6 +56,27 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun p2ToolsAreRegisteredInTheRightGroups() {
+        val core = ToolRegistry.coreTools().map { it.name }
+        assertTrue(core.contains("media_control"))
+        assertTrue(core.contains("add_reminder"))
+        for (n in listOf("calculate", "set_ringer_mode", "copy_to_clipboard", "now_playing", "show_alarms", "list_reminders", "cancel_reminder", "add_todo", "list_todos")) {
+            assertEquals(n, "extra", ToolRegistry.get(n)!!.group)
+            assertFalse(n, core.contains(n))
+        }
+        assertTrue(core.size in 15..30)
+    }
+
+    @Test
+    fun p2FindToolSearch() {
+        assertEquals("calculate", ToolRegistry.search("percent maths hisaab").first().name)
+        assertEquals("set_ringer_mode", ToolRegistry.search("phone silent vibrate").first().name)
+        assertEquals("copy_to_clipboard", ToolRegistry.search("copy this text").first().name)
+        assertTrue(ToolRegistry.search("cancel my reminder").map { it.name }.contains("cancel_reminder"))
+        assertTrue(ToolRegistry.search("add to my todo list").map { it.name }.contains("add_todo"))
+    }
+
+    @Test
     fun legacyLines() {
         assertEquals("OPEN: WhatsApp", line("open_app", "{\"name\":\"WhatsApp\"}"))
         assertEquals("ACTION: HOME", line("go_home"))
@@ -89,7 +110,11 @@ class ToolRegistryTest {
 
     @Test
     fun toolsWithOwnExecutorHaveNoLegacyLine() {
-        for (n in listOf("read_screen_text", "search_web", "get_current_time", "remember_fact", "find_tool")) assertNull(n, line(n))
+        for (n in listOf(
+            "read_screen_text", "search_web", "get_current_time", "remember_fact", "find_tool",
+            "media_control", "add_reminder", "calculate", "set_ringer_mode", "copy_to_clipboard", "now_playing",
+            "show_alarms", "list_reminders", "cancel_reminder", "add_todo", "list_todos"
+        )) assertNull(n, line(n))
         assertNull(line("no_such_tool"))
     }
 

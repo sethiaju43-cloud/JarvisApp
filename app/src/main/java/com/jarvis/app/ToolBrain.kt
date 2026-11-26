@@ -45,6 +45,7 @@ class AndroidToolLlm(private val ctx: Context, private val system: String) : Too
                 val model = b.id.substringAfter("|", "")
                 if (model.isBlank() || ProviderRegistry.preset(pid) == null) continue
                 if (ModelRouter.health.inCooldown(pid)) continue
+                if (ToolCapability.isMarked(Prefs.str(ctx, "toolbad_" + pid + "|" + model, ""), System.currentTimeMillis())) continue
                 cands.add(Cand(pid, model))
                 if (cands.size >= 3) break
             }
@@ -70,7 +71,12 @@ class AndroidToolLlm(private val ctx: Context, private val system: String) : Too
                 lastErr = e.message ?: "fail"
                 if (e.kind == ErrKind.AUTH) ModelRouter.health.cooldown(c.providerId, 10 * 60_000L, "API key galat ya expire")
                 else if (e.kind == ErrKind.NETWORK) ModelRouter.health.cooldown(c.providerId, 30_000L, "internet/server dikkat")
-                else bad.add(k)
+                else {
+                    bad.add(k)
+                    if (ToolCapability.isToolRejection(e.kind, lastErr)) {
+                        Prefs.setStr(ctx, "toolbad_" + k, System.currentTimeMillis().toString())
+                    }
+                }
                 continue
             }
             try {
@@ -146,6 +152,17 @@ class AndroidToolRunner(private val ctx: Context) : ToolRunner {
                 )
                 "remember_fact" -> remember(call.args.optString("fact", ""))
                 "find_tool" -> findTool(call.args.optString("query", ""))
+                "media_control" -> mediaControl(call.args.optString("action", ""))
+                "now_playing" -> ToolOutput(LocalSkills.run(ctx, LocalCmd.NowPlaying), silent = true)
+                "show_alarms" -> ToolOutput(LocalSkills.run(ctx, LocalCmd.ShowAlarms))
+                "set_ringer_mode" -> ToolOutput(LocalSkills.run(ctx, LocalCmd.Ringer(call.args.optString("mode", "normal"))))
+                "copy_to_clipboard" -> ToolOutput(LocalSkills.run(ctx, LocalCmd.ClipWrite(call.args.optString("text", ""))))
+                "calculate" -> ToolOutput(LocalSkills.run(ctx, LocalCmd.Calc(call.args.optString("expression", ""))), silent = true)
+                "add_reminder" -> addReminder(call.args)
+                "list_reminders" -> listReminders()
+                "cancel_reminder" -> cancelReminder(call.args.optInt("number", 0))
+                "add_todo" -> addTodo(call.args.optString("text", ""))
+                "list_todos" -> listTodos()
                 else -> legacy(call)
             }
         } catch (e: Exception) {
@@ -196,6 +213,69 @@ class AndroidToolRunner(private val ctx: Context) : ToolRunner {
             MemoryStore.AddResult.TOO_SHORT -> "Kya yaad rakhun? Thoda aur batao 🙂"
         }
         return ToolOutput(msg)
+    }
+
+    private fun mediaControl(action: String): ToolOutput {
+        val cmd = when (action) {
+            "play" -> LocalCmd.MediaPlay
+            "pause" -> LocalCmd.MediaPause
+            "next" -> LocalCmd.MediaNext
+            "previous" -> LocalCmd.MediaPrev
+            else -> return ToolOutput("Unknown action.")
+        }
+        return ToolOutput(LocalSkills.run(ctx, cmd))
+    }
+
+    private fun addReminder(a: JSONObject): ToolOutput {
+        val tz = java.util.TimeZone.getDefault()
+        val whenMs = ToolTime.parse(a.optString("datetime", ""), tz)
+            ?: return ToolOutput("Ye date/time samajh nahi aaya 😕 Sahi date aur time ke saath dobara try karo.")
+        val now = System.currentTimeMillis()
+        if (whenMs <= now + 10_000L) return ToolOutput("Ye time nikal chuka hai 😕 Aage ka time batao.")
+        val repeat = a.optBoolean("repeat_daily", false)
+        val msg = a.optString("message", "")
+        val item = Reminders.add(ctx, whenMs, msg, repeat)
+            ?: return ToolOutput("Reminders ki limit (" + Reminders.MAX_ITEMS + ") poori ho gayi. Kuch hata do 🗑")
+        var s = "Theek hai ⏰ " + ReminderLogic.describe(whenMs, now, tz) + (if (repeat) " (roz)" else "") + " yaad dilaungi: " + item.message
+        if (!Reminders.notificationsAllowed(ctx)) {
+            s += "\n⚠️ Notification band hai, isliye reminder dikhega nahi. Settings -> Permissions mein 'Notifications' Allow karo."
+        }
+        return ToolOutput(s)
+    }
+
+    private fun listReminders(): ToolOutput {
+        val items = Reminders.list(ctx)
+        if (items.isEmpty()) return ToolOutput("Abhi koi reminder nahi hai.", silent = true)
+        val tz = java.util.TimeZone.getDefault()
+        val now = System.currentTimeMillis()
+        val sb = StringBuilder()
+        for ((i, r) in items.withIndex()) {
+            sb.append(i + 1).append(") ").append(ReminderLogic.describe(r.whenMs, now, tz))
+                .append(if (r.repeatDaily) " (roz)" else "").append(": ").append(r.message).append("\n")
+        }
+        return ToolOutput(sb.toString().trim(), silent = true)
+    }
+
+    private fun cancelReminder(number: Int): ToolOutput {
+        val items = Reminders.list(ctx)
+        if (number < 1 || number > items.size) return ToolOutput("Is number ka reminder nahi mila. Pehle list_reminders dekho.")
+        val r = items[number - 1]
+        Reminders.remove(ctx, r.id)
+        return ToolOutput("Reminder hata diya 🗑: " + r.message)
+    }
+
+    private fun addTodo(text: String): ToolOutput {
+        val item = Todos.add(ctx, text) ?: return ToolOutput("To-do list bhar gayi (" + Todos.MAX_ITEMS + "). Kuch hata do 🗑")
+        val pending = Todos.list(ctx).count { !it.done }
+        return ToolOutput("Todo mein jod diya ✅: " + item.text + " (ab " + pending + " kaam baaki)")
+    }
+
+    private fun listTodos(): ToolOutput {
+        val pending = Todos.list(ctx).filter { !it.done }
+        if (pending.isEmpty()) return ToolOutput("Todo list khali hai 🎉", silent = true)
+        val sb = StringBuilder()
+        for ((i, t) in pending.withIndex()) sb.append(i + 1).append(") ").append(t.text).append("\n")
+        return ToolOutput(sb.toString().trim(), silent = true)
     }
 
     private fun findTool(q: String): ToolOutput {

@@ -68,6 +68,18 @@ object ToolRegistry {
             "whatsapp_send_message", "Send a WhatsApp message. The user is asked to confirm first.",
             listOf(strP("to", "Contact name or phone number", maxLen = 80), strP("message", "Message text", maxLen = 600)), ToolRisk.CONFIRM
         ),
+        tool(
+            "media_control", "Control the music or video that is already playing: play, pause, next or previous.",
+            listOf(strP("action", "What to do", enumValues = listOf("play", "pause", "next", "previous")))
+        ),
+        tool(
+            "add_reminder", "Set a reminder notification at a date and time. Use the current time given in the system message to work out the date.",
+            listOf(
+                strP("message", "What to remind about", maxLen = 200),
+                strP("datetime", "When, as YYYY-MM-DD HH:MM (24-hour, phone local time)", maxLen = 16, pattern = EVENT_PATTERN),
+                boolP("repeat_daily", "true to repeat every day", required = false)
+            )
+        ),
         tool("play_music", "Play a song or artist.", listOf(strP("query", "Song or artist name", maxLen = 120))),
         tool("search_web", "Search the web for current information and return a short answer.", listOf(strP("query", "Search query", maxLen = 200))),
         tool("get_current_time", "Get the current date and time on the phone."),
@@ -95,7 +107,36 @@ object ToolRegistry {
             group = "extra", kw = listOf("camera", "selfie", "picture", "photo", "pic")
         ),
         tool("lock_device", "Lock the phone screen.", group = "extra", kw = listOf("lock", "screen off")),
-        tool("show_notifications", "Open the notification shade.", group = "extra", kw = listOf("notification", "notifications"))
+        tool("show_notifications", "Open the notification shade.", group = "extra", kw = listOf("notification", "notifications")),
+        tool(
+            "calculate", "Calculate an arithmetic expression exactly (+ - * / % and brackets).",
+            listOf(strP("expression", "Expression such as 25*18/100", maxLen = 100)),
+            group = "extra", kw = listOf("math", "maths", "percent", "calculator", "hisaab", "sum", "multiply", "divide")
+        ),
+        tool(
+            "set_ringer_mode", "Set the phone ringer mode.",
+            listOf(strP("mode", "Ringer mode", enumValues = listOf("normal", "vibrate", "silent"))),
+            group = "extra", kw = listOf("silent", "vibrate", "ringer", "sound", "mute", "ring")
+        ),
+        tool(
+            "copy_to_clipboard", "Copy text to the clipboard.",
+            listOf(strP("text", "Text to copy", maxLen = 1000)),
+            group = "extra", kw = listOf("copy", "clipboard", "paste")
+        ),
+        tool("now_playing", "Tell which song is playing right now.", group = "extra", kw = listOf("song", "music", "playing", "gaana")),
+        tool("show_alarms", "Show the list of alarms in the clock app.", group = "extra", kw = listOf("alarm", "alarms", "clock")),
+        tool("list_reminders", "List the reminders that are set, numbered.", group = "extra", kw = listOf("reminder", "reminders", "yaad")),
+        tool(
+            "cancel_reminder", "Cancel a reminder by its number from list_reminders.",
+            listOf(intP("number", "Reminder number as listed", 1, 50)),
+            group = "extra", kw = listOf("reminder", "reminders", "remove", "delete", "hatao")
+        ),
+        tool(
+            "add_todo", "Add an item to the to-do list.",
+            listOf(strP("text", "The task", maxLen = 200)),
+            group = "extra", kw = listOf("todo", "task", "list", "kaam")
+        ),
+        tool("list_todos", "Read the pending to-do items.", group = "extra", kw = listOf("todo", "tasks", "list", "kaam"))
     )
 
     private val byName: Map<String, ToolSpec> = all.associateBy { it.name }

@@ -123,7 +123,7 @@ object ToolPolicy {
             norm.put(p.name, c.value)
         }
         if (name == "set_alarm") norm.put("time", padTime(norm.getString("time")))
-        if (name == "add_calendar_event") norm.put("datetime", norm.getString("datetime").replace('T', ' '))
+        if (name == "add_calendar_event" || name == "add_reminder") norm.put("datetime", norm.getString("datetime").replace('T', ' '))
 
         val clean = ToolCall(call.id, name, norm)
         if (spec.risk == ToolRisk.CONFIRM) {
