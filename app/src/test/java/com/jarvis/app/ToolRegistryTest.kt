@@ -105,6 +105,19 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun p8RoutineTools() {
+        assertTrue(ToolRegistry.coreTools().map { it.name }.contains("add_routine"))
+        assertEquals("extra", ToolRegistry.get("list_routines")!!.group)
+        assertEquals("extra", ToolRegistry.get("remove_routine")!!.group)
+        assertTrue(ToolRegistry.search("daily routine automatic").map { it.name }.contains("list_routines"))
+        assertTrue(ToolRegistry.search("remove routine").map { it.name }.contains("remove_routine"))
+        assertTrue(ToolRegistry.coreTools().size in 15..30)
+        // routine ka sirf surakshit kaam: add_routine ke params mein call/SMS/app kholne jaisa kuch nahi
+        val names = ToolRegistry.get("add_routine")!!.params.map { it.name }.toSet()
+        assertEquals(setOf("time", "days", "ringer_mode", "volume_percent", "driving_mode", "notify_text"), names)
+    }
+
+    @Test
     fun legacyLines() {
         assertEquals("OPEN: WhatsApp", line("open_app", "{\"name\":\"WhatsApp\"}"))
         assertEquals("ACTION: HOME", line("go_home"))
@@ -143,7 +156,7 @@ class ToolRegistryTest {
             "media_control", "add_reminder", "calculate", "set_ringer_mode", "copy_to_clipboard", "now_playing",
             "show_alarms", "list_reminders", "cancel_reminder", "add_todo", "list_todos",
             "set_driving_mode", "recall_memory", "share_text", "compose_email", "open_dialer",
-            "start_background_task", "job_status", "cancel_job"
+            "start_background_task", "job_status", "cancel_job", "add_routine", "list_routines", "remove_routine"
         )) assertNull(n, line(n))
         assertNull(line("no_such_tool"))
     }

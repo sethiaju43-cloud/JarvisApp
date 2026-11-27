@@ -185,6 +185,27 @@ class ToolPolicyTest {
     }
 
     @Test
+    fun p8RoutineArgs() {
+        val c = allow("add_routine", "{\"time\":\"7:05\",\"days\":\"Weekdays\",\"ringer_mode\":\"SILENT\",\"volume_percent\":\"30\"}")
+        assertEquals("07:05", c.args.getString("time"))
+        assertEquals("weekdays", c.args.getString("days"))
+        assertEquals("silent", c.args.getString("ringer_mode"))
+        assertEquals(30, c.args.getInt("volume_percent"))
+        assertEquals("bad_arg", rejectCode("add_routine", "{\"time\":\"25:00\",\"ringer_mode\":\"silent\"}"))
+        assertEquals("bad_arg", rejectCode("add_routine", "{\"time\":\"22:30\",\"ringer_mode\":\"loud\"}"))
+        assertEquals("bad_arg", rejectCode("add_routine", "{\"time\":\"22:30\",\"volume_percent\":150}"))
+        assertEquals("bad_arg", rejectCode("add_routine", "{\"time\":\"22:30\",\"days\":\"sometimes\",\"ringer_mode\":\"silent\"}"))
+        assertEquals("missing_arg", rejectCode("add_routine", "{\"ringer_mode\":\"silent\"}"))
+        assertEquals("bad_arg", rejectCode("remove_routine", "{\"number\":0}"))
+        assertEquals(2, allow("remove_routine", "{\"number\":2}").args.getInt("number"))
+        allow("list_routines")
+        // call/SMS wale routine ke liye koi raasta nahi: extra field chupchap hata diya jata hai
+        val sneaky = allow("add_routine", "{\"time\":\"22:30\",\"ringer_mode\":\"silent\",\"call\":\"Rahul\",\"action\":\"ACTION: CALL Rahul\"}")
+        assertTrue(!sneaky.args.has("call"))
+        assertTrue(!sneaky.args.has("action"))
+    }
+
+    @Test
     fun extraArgsAreDropped() {
         val c = allow("go_home", "{\"sneaky\":\"value\"}")
         assertTrue(!c.args.has("sneaky"))

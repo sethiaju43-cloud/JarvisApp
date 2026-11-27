@@ -91,6 +91,18 @@ object ToolRegistry {
                 intP("workers", "How many helper agents to split the work across, running in parallel (2 to 5 for a big research or plan, 1 for a single agent). More helpers is faster but uses more API calls.", 1, 5, required = false)
             )
         ),
+        tool(
+            "add_routine",
+            "Create a routine that runs by itself at a fixed time with no internet or AI, e.g. every night at 22:30 set the phone to silent. Give at least one action: ringer_mode, volume_percent, driving_mode or notify_text.",
+            listOf(
+                strP("time", "Time of day as HH:MM in 24-hour format", maxLen = 5, pattern = TIME_PATTERN),
+                strP("days", "Which days", required = false, enumValues = listOf("everyday", "weekdays", "weekends")),
+                strP("ringer_mode", "Set the ringer mode", required = false, enumValues = listOf("normal", "vibrate", "silent")),
+                intP("volume_percent", "Set the media volume percent", 0, 100, required = false),
+                strP("driving_mode", "Turn driving mode on or off", required = false, enumValues = listOf("on", "off")),
+                strP("notify_text", "Show this text as a notification when the routine runs", required = false, maxLen = 120)
+            )
+        ),
         tool("play_music", "Play a song or artist.", listOf(strP("query", "Song or artist name", maxLen = 120))),
         tool("search_web", "Search the web for current information and return a short answer.", listOf(strP("query", "Search query", maxLen = 200))),
         tool("get_current_time", "Get the current date and time on the phone."),
@@ -181,6 +193,15 @@ object ToolRegistry {
             "cancel_job", "Stop a running background task. Without a number it stops the latest running one.",
             listOf(intP("id", "Task number", 1, 9999, required = false)),
             group = "extra", kw = listOf("cancel", "stop", "job", "background", "research", "band")
+        ),
+        tool(
+            "list_routines", "List the automatic routines that are set, numbered.",
+            group = "extra", kw = listOf("routine", "routines", "automatic", "daily", "roz")
+        ),
+        tool(
+            "remove_routine", "Remove an automatic routine by its number from list_routines.",
+            listOf(intP("number", "Routine number as listed", 1, 99)),
+            group = "extra", kw = listOf("routine", "routines", "remove", "delete", "hatao")
         ),
         tool(
             "open_dialer", "Open the phone dialer with a number filled in, without calling.",

@@ -146,5 +146,9 @@
         <receiver
             android:name=".BriefReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".RoutineReceiver"
+            android:exported="false" />
     </application>
 </manifest>

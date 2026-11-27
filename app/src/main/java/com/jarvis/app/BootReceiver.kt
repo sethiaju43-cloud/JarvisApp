@@ -13,6 +13,7 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 Reminders.rescheduleAll(context)
                 DailyBrief.reschedule(context)
+                Routines.rescheduleAll(context)
             } catch (e: Exception) {
             }
         }

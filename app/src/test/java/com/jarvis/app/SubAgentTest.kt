@@ -76,7 +76,8 @@ class SubAgentTest {
     fun jobIntentWords() {
         for (t in listOf("electric cars par deep research karo", "ek report banao AI ki", "RESEARCH kar do", "essay likh do 500 words ka",
             "script likh do YouTube ke liye", "ye background mein karo", "job status batao", "रिसर्च करो",
-            "4 helper agents se parallel mein dekho")) {
+            "4 helper agents se parallel mein dekho", "roz raat 10 baje phone silent kar do", "har din subah volume 40 karo",
+            "ek daily routine banao")) {
             assertTrue(t, JobIntent.looksLikeJob(t))
         }
         for (t in listOf("torch on karo", "Rahul ko call lagao", "namaste", "alarm lagao 7 baje", "WhatsApp kholo")) {
