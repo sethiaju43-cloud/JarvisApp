@@ -87,7 +87,8 @@ object ToolRegistry {
             "Start a big task in a separate background agent: deep research, long writing, or a detailed plan. It runs for several minutes while the user keeps chatting, and the user gets a notification when it is done. Do not use it for quick questions.",
             listOf(
                 strP("kind", "Type of task", enumValues = listOf("research", "writing", "plan")),
-                strP("brief", "Full description of what to research, write or plan, with all details the user gave", maxLen = 600)
+                strP("brief", "Full description of what to research, write or plan, with all details the user gave", maxLen = 600),
+                intP("workers", "How many helper agents to split the work across, running in parallel (2 to 5 for a big research or plan, 1 for a single agent). More helpers is faster but uses more API calls.", 1, 5, required = false)
             )
         ),
         tool("play_music", "Play a song or artist.", listOf(strP("query", "Song or artist name", maxLen = 120))),

@@ -195,7 +195,7 @@ class AndroidToolRunner(private val ctx: Context) : ToolRunner {
                 "share_text" -> shareText(call.args.optString("text", ""))
                 "compose_email" -> composeEmail(call.args)
                 "open_dialer" -> openDialer(call.args.optString("number", ""))
-                "start_background_task" -> ToolOutput(SubAgentRunner.start(ctx, call.args.optString("kind", ""), call.args.optString("brief", "")))
+                "start_background_task" -> ToolOutput(SubAgentRunner.start(ctx, call.args.optString("kind", ""), call.args.optString("brief", ""), call.args.optInt("workers", 1)))
                 "job_status" -> ToolOutput(ToolPrompt.untrusted("BACKGROUND TASK", SubAgentRunner.status(call.args.optInt("id", 0))), silent = true)
                 "cancel_job" -> ToolOutput(SubAgentRunner.cancel(call.args.optInt("id", 0)))
                 else -> legacy(call)

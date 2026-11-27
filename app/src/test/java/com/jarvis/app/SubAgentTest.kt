@@ -54,6 +54,16 @@ class SubAgentTest {
     }
 
     @Test
+    fun workerPromptIsNarrowAndSafe() {
+        val p = SubAgent.workerPrompt("Abhi ka samay: aaj.")
+        assertTrue(p.contains("EK hissa"))
+        assertTrue(p.contains("UNTRUSTED"))
+        assertTrue(p.contains("phone ko chala nahi sakte"))
+        assertTrue(p.contains("2 se 4"))
+        assertEquals(6, SubAgent.MAX_WORKER_ROUNDS)
+    }
+
+    @Test
     fun previewIsOneShortLine() {
         assertEquals("Pehli line", SubAgent.preview("\n\nPehli line\nDusri line"))
         assertEquals("", SubAgent.preview("   "))
@@ -65,7 +75,8 @@ class SubAgentTest {
     @Test
     fun jobIntentWords() {
         for (t in listOf("electric cars par deep research karo", "ek report banao AI ki", "RESEARCH kar do", "essay likh do 500 words ka",
-            "script likh do YouTube ke liye", "ye background mein karo", "job status batao", "रिसर्च करो")) {
+            "script likh do YouTube ke liye", "ye background mein karo", "job status batao", "रिसर्च करो",
+            "4 helper agents se parallel mein dekho")) {
             assertTrue(t, JobIntent.looksLikeJob(t))
         }
         for (t in listOf("torch on karo", "Rahul ko call lagao", "namaste", "alarm lagao 7 baje", "WhatsApp kholo")) {

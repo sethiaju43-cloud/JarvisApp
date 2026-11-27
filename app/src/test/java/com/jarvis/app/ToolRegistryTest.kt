@@ -98,6 +98,10 @@ class ToolRegistryTest {
         assertTrue(ToolRegistry.coreTools().size in 15..30)
         // start_background_task ke baare mein model ko saaf bataya gaya hai ki chhote sawal ke liye nahi
         assertTrue(ToolRegistry.get("start_background_task")!!.description.contains("Do not use it for quick questions"))
+        val workers = ToolRegistry.get("start_background_task")!!.params.first { it.name == "workers" }
+        assertFalse(workers.required)
+        assertEquals(1, workers.min)
+        assertEquals(MasterPlan.MAX_WORKERS, workers.max)
     }
 
     @Test

@@ -133,6 +133,20 @@ class JobBoardTest {
     }
 
     @Test
+    fun workersAndProgressAreShown() {
+        val b = JobBoard()
+        val j = started(b.start(JobKind.RESEARCH, "EV ka future", 0L, 4))
+        assertEquals(4, j.workers)
+        assertFalse(b.describe(j, 10_000L).contains("["))
+        j.progress = "2/4 hisse poore"
+        val d = b.describe(j, 10_000L)
+        assertTrue(d.contains("[2/4 hisse poore]"))
+        assertTrue(d.contains("EV ka future"))
+        // default akela agent
+        assertEquals(1, started(b.start(JobKind.PLAN, "trip", 0L)).workers)
+    }
+
+    @Test
     fun describeAllStates() {
         val b = JobBoard()
         val j = started(b.start(JobKind.RESEARCH, "electric cars ka future", 0L))

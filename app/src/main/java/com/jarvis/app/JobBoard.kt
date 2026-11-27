@@ -24,6 +24,14 @@ class Job(val id: Int, val kind: JobKind, val brief: String, val startedAt: Long
 
     @Volatile
     var endedAt: Long = 0L
+
+    /** Kitne helper agents mein baanta gaya (1 = akela agent) */
+    @Volatile
+    var workers: Int = 1
+
+    /** Chalte waqt ka chhota haal, jaise "2/4 hisse poore" */
+    @Volatile
+    var progress: String = ""
 }
 
 sealed class JobStart {
@@ -37,7 +45,7 @@ class JobBoard(private val maxRunning: Int = 2, private val keepFinished: Int = 
     private var nextId = 1
 
     @Synchronized
-    fun start(kind: JobKind, brief: String, now: Long): JobStart {
+    fun start(kind: JobKind, brief: String, now: Long, workers: Int = 1): JobStart {
         val running = jobs.filter { it.state == JobState.RUNNING }
         val same = running.firstOrNull { it.kind == kind }
         if (same != null) {
@@ -47,6 +55,7 @@ class JobBoard(private val maxRunning: Int = 2, private val keepFinished: Int = 
             return JobStart.Busy("Abhi " + running.size + " kaam background mein chal rahe hain. Ek khatam hone do.")
         }
         val j = Job(nextId, kind, brief.trim(), now)
+        j.workers = workers
         nextId++
         jobs.add(j)
         trim()
@@ -116,7 +125,8 @@ class JobBoard(private val maxRunning: Int = 2, private val keepFinished: Int = 
     fun describe(j: Job, now: Long): String {
         val head = "#" + j.id + " " + j.kind.label
         return when (j.state) {
-            JobState.RUNNING -> head + " chal rahi hai (" + elapsed(now - j.startedAt) + "): " + j.brief.take(80)
+            JobState.RUNNING -> head + " chal rahi hai (" + elapsed(now - j.startedAt) + ")" +
+                (if (j.progress.isNotBlank()) " [" + j.progress + "]" else "") + ": " + j.brief.take(80)
             JobState.DONE -> head + " ho gayi ✅\n" + j.result
             JobState.FAILED -> head + " nahi ho payi 😕 " + j.result
             JobState.CANCELLED -> head + " cancel ki gayi 🛑"
