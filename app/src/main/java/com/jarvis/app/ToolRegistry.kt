@@ -204,6 +204,21 @@ object ToolRegistry {
             group = "extra", kw = listOf("routine", "routines", "remove", "delete", "hatao")
         ),
         tool(
+            "set_event_trigger",
+            "Turn on or off automatic announcements of phone events (charger, battery low or full, headphones, bluetooth, airplane mode, storage, installed apps...). It runs by itself with no AI call. Use event 'all' for everything.",
+            listOf(
+                strP("event", "Which events", enumValues = listOf("charging", "battery", "bluetooth", "headset", "airplane", "power_saver", "ringer", "apps", "storage", "all")),
+                boolP("on", "true = announce, false = stop announcing"),
+                boolP("speak", "true = also say it aloud, false = notification only", required = false),
+                intP("low_battery_percent", "Battery percent at which to warn", 5, 50, required = false)
+            ),
+            group = "extra", kw = listOf("announce", "alert", "charger", "charging", "battery", "notify", "event", "headphone", "storage", "bataya", "batao")
+        ),
+        tool(
+            "list_event_triggers", "Show which phone event announcements are on.",
+            group = "extra", kw = listOf("event", "events", "announce", "alerts", "charger", "battery")
+        ),
+        tool(
             "open_dialer", "Open the phone dialer with a number filled in, without calling.",
             listOf(strP("number", "Phone number", maxLen = 20, pattern = DIAL_PATTERN)),
             group = "extra", kw = listOf("dial", "dialer", "number", "keypad")

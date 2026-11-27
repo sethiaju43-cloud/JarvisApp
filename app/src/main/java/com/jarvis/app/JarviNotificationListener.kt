@@ -27,6 +27,7 @@ class JarviNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         instance = this
+        DeviceEvents.start(applicationContext)
         try {
             val active = activeNotifications
             if (active != null) for (sbn in active) add(sbn, false)

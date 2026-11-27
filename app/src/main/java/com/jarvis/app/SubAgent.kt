@@ -63,6 +63,7 @@ object JobIntent {
         "detail mein likh", "detail me likh", "study plan", "trip plan", "job status", "task status",
         "parallel", "master agent", "helper agent", "kai agents", "agents se",
         "routine", "har din", "har roz", "roz subah", "roz raat", "every day", "everyday", "every night",
+        "charger lag", "charger nik", "battery low", "battery full", "announce", "ghoshna", "phone events",
         "रिसर्च", "रिपोर्ट"
     )
 

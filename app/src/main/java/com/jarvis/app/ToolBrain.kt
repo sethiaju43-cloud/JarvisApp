@@ -199,6 +199,8 @@ class AndroidToolRunner(private val ctx: Context) : ToolRunner {
                 "add_routine" -> ToolOutput(Routines.addFromArgs(ctx, call.args))
                 "list_routines" -> ToolOutput(Routines.listText(ctx), silent = true)
                 "remove_routine" -> ToolOutput(Routines.removeByNumber(ctx, call.args.optInt("number", 0)))
+                "set_event_trigger" -> ToolOutput(DeviceEvents.setFromArgs(ctx, call.args))
+                "list_event_triggers" -> ToolOutput(DeviceEvents.listText(ctx), silent = true)
                 "job_status" -> ToolOutput(ToolPrompt.untrusted("BACKGROUND TASK", SubAgentRunner.status(call.args.optInt("id", 0))), silent = true)
                 "cancel_job" -> ToolOutput(SubAgentRunner.cancel(call.args.optInt("id", 0)))
                 else -> legacy(call)

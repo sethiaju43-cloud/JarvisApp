@@ -8,6 +8,7 @@ class JarvisApp : Application() {
         super.onCreate()
         // Har screen par naya design (rang, background animation, DP) apne aap lagega
         registerActivityLifecycleCallbacks(SkinCallbacks())
+        DeviceEvents.start(this)
     }
 
     /** Phone ki memory kam ho to local model hata do (crash se bachne ke liye) */

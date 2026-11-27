@@ -118,6 +118,19 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun p9EventTools() {
+        assertEquals("extra", ToolRegistry.get("set_event_trigger")!!.group)
+        assertEquals("extra", ToolRegistry.get("list_event_triggers")!!.group)
+        val found = ToolRegistry.search("announce charger battery").map { it.name }
+        assertTrue(found.contains("set_event_trigger"))
+        assertTrue(found.contains("list_event_triggers"))
+        assertTrue(ToolRegistry.coreTools().size in 15..30)
+        // enum ke group asli DeviceEventLogic.GROUPS ke barabar hain (+ all)
+        val enumVals = ToolRegistry.get("set_event_trigger")!!.params.first { it.name == "event" }.enumValues
+        assertEquals(DeviceEventLogic.GROUPS + "all", enumVals)
+    }
+
+    @Test
     fun legacyLines() {
         assertEquals("OPEN: WhatsApp", line("open_app", "{\"name\":\"WhatsApp\"}"))
         assertEquals("ACTION: HOME", line("go_home"))
@@ -156,7 +169,8 @@ class ToolRegistryTest {
             "media_control", "add_reminder", "calculate", "set_ringer_mode", "copy_to_clipboard", "now_playing",
             "show_alarms", "list_reminders", "cancel_reminder", "add_todo", "list_todos",
             "set_driving_mode", "recall_memory", "share_text", "compose_email", "open_dialer",
-            "start_background_task", "job_status", "cancel_job", "add_routine", "list_routines", "remove_routine"
+            "start_background_task", "job_status", "cancel_job", "add_routine", "list_routines", "remove_routine",
+            "set_event_trigger", "list_event_triggers"
         )) assertNull(n, line(n))
         assertNull(line("no_such_tool"))
     }

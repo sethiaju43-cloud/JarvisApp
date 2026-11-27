@@ -206,6 +206,19 @@ class ToolPolicyTest {
     }
 
     @Test
+    fun p9EventArgs() {
+        val c = allow("set_event_trigger", "{\"event\":\"Charging\",\"on\":true,\"speak\":\"true\",\"low_battery_percent\":\"15\"}")
+        assertEquals("charging", c.args.getString("event"))
+        assertTrue(c.args.getBoolean("speak"))
+        assertEquals(15, c.args.getInt("low_battery_percent"))
+        assertEquals("bad_arg", rejectCode("set_event_trigger", "{\"event\":\"wifi\",\"on\":true}"))
+        assertEquals("bad_arg", rejectCode("set_event_trigger", "{\"event\":\"battery\",\"on\":true,\"low_battery_percent\":4}"))
+        assertEquals("bad_arg", rejectCode("set_event_trigger", "{\"event\":\"battery\",\"on\":true,\"low_battery_percent\":60}"))
+        assertEquals("missing_arg", rejectCode("set_event_trigger", "{\"event\":\"all\"}"))
+        allow("list_event_triggers")
+    }
+
+    @Test
     fun extraArgsAreDropped() {
         val c = allow("go_home", "{\"sneaky\":\"value\"}")
         assertTrue(!c.args.has("sneaky"))
