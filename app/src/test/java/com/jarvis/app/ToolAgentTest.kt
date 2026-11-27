@@ -349,6 +349,47 @@ class ToolAgentTest {
     }
 
     @Test
+    fun runnerCanAskForConfirmationItself() {
+        val runner = object : ToolRunner {
+            override fun run(call: ToolCall) = ToolOutput("x", confirmQuestion = "'Send' dabaun? (haan / nahi)", confirmLine = "ACTION: CLICK Send")
+        }
+        val llm = FakeLlm(listOf(modelCalls(call("1", "tap_element", "{\"id\":3}")), modelText("ok")))
+        val r = ToolAgent(llm, runner).run(hist)
+        assertTrue(r is AgentResult.NeedConfirm)
+        r as AgentResult.NeedConfirm
+        assertEquals("ACTION: CLICK Send", r.line)
+        assertEquals("'Send' dabaun? (haan / nahi)", r.question)
+        assertEquals(1, llm.calls) // model ko dobara nahi bulaya
+    }
+
+    @Test
+    fun runnerConfirmWithoutQuestionGetsDefault() {
+        val runner = object : ToolRunner {
+            override fun run(call: ToolCall) = ToolOutput("x", confirmLine = "ACTION: CLICK Pay")
+        }
+        val r = ToolAgent(FakeLlm(listOf(modelCalls(call("1", "tap_element", "{\"id\":1}")))), runner).run(hist)
+        assertTrue((r as AgentResult.NeedConfirm).question.contains("haan"))
+    }
+
+    @Test
+    fun runnerConfirmKeepsEarlierSteps() {
+        val calls = ArrayList<String>()
+        val runner = object : ToolRunner {
+            override fun run(call: ToolCall): ToolOutput {
+                calls.add(call.name)
+                return if (call.name == "tap_element") ToolOutput("x", confirmLine = "ACTION: CLICK Send") else ToolOutput("done " + call.name)
+            }
+        }
+        val llm = FakeLlm(listOf(
+            modelCalls(call("1", "open_app", "{\"name\":\"WhatsApp\"}")),
+            modelCalls(call("2", "tap_element", "{\"id\":2}"))
+        ))
+        val r = ToolAgent(llm, runner).run(hist) as AgentResult.NeedConfirm
+        assertEquals(listOf("open_app", "tap_element"), calls)
+        assertEquals(1, r.steps.size)
+    }
+
+    @Test
     fun untrustedWrapperAndRules() {
         val w = ToolPrompt.untrusted("SCREEN TEXT", "hello")
         assertTrue(w.contains("untrusted"))

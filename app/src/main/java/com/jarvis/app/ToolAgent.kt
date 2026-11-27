@@ -14,7 +14,14 @@ interface ToolLlm {
 }
 
 /** text = model ko wapas jane wala nateeja. reveal = find_tool ne jo naye tools dikhaye. silent = user ke liye "step" nahi. */
-class ToolOutput(val text: String, val reveal: List<String> = emptyList(), val silent: Boolean = false)
+class ToolOutput(
+    val text: String,
+    val reveal: List<String> = emptyList(),
+    val silent: Boolean = false,
+    /** Runner ne khud dekha ki ye kaam user se poochhe bina nahi hona chahiye (jaise "Send" dabana). line = haan par chalne wali ACTION: line. */
+    val confirmQuestion: String? = null,
+    val confirmLine: String? = null
+)
 
 interface ToolRunner {
     fun run(call: ToolCall): ToolOutput
@@ -156,6 +163,11 @@ class ToolAgent(
                 // Beech mein Stop dabaya ho to agla tool mat chalao
                 if (stop()) return AgentResult.Done("Ruk gayi 🛑", steps)
                 val out = runner.run(toRun)
+                val cl = out.confirmLine
+                if (cl != null) {
+                    note("CONFIRM(runner) " + call.name + ": " + cl)
+                    return AgentResult.NeedConfirm(out.confirmQuestion ?: "Pakka karun? (haan / nahi)", cl, steps)
+                }
                 executed++
                 val text = if (out.text.length <= resultLimit) out.text else out.text.take(resultLimit) + "..."
                 for (r in out.reveal) offered.add(r)

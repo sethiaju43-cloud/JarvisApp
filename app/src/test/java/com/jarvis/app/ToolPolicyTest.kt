@@ -219,6 +219,27 @@ class ToolPolicyTest {
     }
 
     @Test
+    fun p10ScreenArgs() {
+        allow("read_screen_elements")
+        assertEquals(5, allow("tap_element", "{\"id\":\"5\"}").args.getInt("id"))
+        assertEquals("bad_arg", rejectCode("tap_element", "{\"id\":0}"))
+        assertEquals("bad_arg", rejectCode("tap_element", "{\"id\":100}"))
+        assertEquals("missing_arg", rejectCode("tap_element"))
+        assertEquals("bad_arg", rejectCode("wait", "{\"seconds\":31}"))
+        assertEquals(10, allow("wait", "{\"seconds\":10}").args.getInt("seconds"))
+        assertEquals("bad_arg", rejectCode("wait_for_screen_text", "{\"text\":\"Done\",\"timeout_seconds\":61}"))
+        assertTrue(!allow("wait_for_screen_text", "{\"text\":\"Done\"}").args.has("timeout_seconds"))
+        assertEquals("down", allow("scroll_to", "{\"text\":\"Settings\",\"direction\":\"Down\"}").args.getString("direction"))
+        assertEquals("bad_arg", rejectCode("scroll_to", "{\"text\":\"x\",\"max_scrolls\":16}"))
+        assertEquals("left", allow("swipe_screen", "{\"direction\":\"LEFT\"}").args.getString("direction"))
+        assertEquals("bad_arg", rejectCode("swipe_screen", "{\"direction\":\"diagonal\"}"))
+        assertEquals(540, allow("tap_coordinates", "{\"x\":540,\"y\":\"1200\"}").args.getInt("x"))
+        assertEquals("bad_arg", rejectCode("tap_coordinates", "{\"x\":-1,\"y\":10}"))
+        assertEquals("bad_arg", rejectCode("tap_coordinates", "{\"x\":10,\"y\":5001}"))
+        allow("get_lock_state")
+    }
+
+    @Test
     fun extraArgsAreDropped() {
         val c = allow("go_home", "{\"sneaky\":\"value\"}")
         assertTrue(!c.args.has("sneaky"))

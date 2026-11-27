@@ -131,6 +131,23 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun p10ScreenTools() {
+        val core = ToolRegistry.coreTools().map { it.name }
+        assertTrue(core.contains("read_screen_elements"))
+        assertTrue(core.contains("tap_element"))
+        for (n in listOf("wait_for_screen_text", "wait", "scroll_to", "swipe_screen", "tap_coordinates", "get_lock_state")) {
+            assertEquals(n, "extra", ToolRegistry.get(n)!!.group)
+        }
+        assertTrue(core.size in 15..30)
+        assertTrue(ToolRegistry.search("wait for page to load").map { it.name }.contains("wait_for_screen_text"))
+        assertTrue(ToolRegistry.search("swipe left").map { it.name }.contains("swipe_screen"))
+        assertTrue(ToolRegistry.search("scroll until text is visible").map { it.name }.contains("scroll_to"))
+        assertEquals("tap_coordinates", ToolRegistry.search("tap coordinates pixel").first().name)
+        // tap_element sirf number leta hai, naam ya text nahi
+        assertEquals(listOf("id"), ToolRegistry.get("tap_element")!!.params.map { it.name })
+    }
+
+    @Test
     fun legacyLines() {
         assertEquals("OPEN: WhatsApp", line("open_app", "{\"name\":\"WhatsApp\"}"))
         assertEquals("ACTION: HOME", line("go_home"))
@@ -170,7 +187,8 @@ class ToolRegistryTest {
             "show_alarms", "list_reminders", "cancel_reminder", "add_todo", "list_todos",
             "set_driving_mode", "recall_memory", "share_text", "compose_email", "open_dialer",
             "start_background_task", "job_status", "cancel_job", "add_routine", "list_routines", "remove_routine",
-            "set_event_trigger", "list_event_triggers"
+            "set_event_trigger", "list_event_triggers",
+            "read_screen_elements", "tap_element", "wait_for_screen_text", "wait", "scroll_to", "swipe_screen", "tap_coordinates", "get_lock_state"
         )) assertNull(n, line(n))
         assertNull(line("no_such_tool"))
     }

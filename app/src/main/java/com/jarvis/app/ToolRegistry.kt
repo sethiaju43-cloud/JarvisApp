@@ -103,6 +103,15 @@ object ToolRegistry {
                 strP("notify_text", "Show this text as a notification when the routine runs", required = false, maxLen = 120)
             )
         ),
+        tool(
+            "read_screen_elements",
+            "List the buttons, fields and switches on the screen, each with a number (#1, #2...). Use it before tap_element. Does not work in private apps (bank, UPI, passwords).",
+            emptyList()
+        ),
+        tool(
+            "tap_element", "Tap an element by its number from the latest read_screen_elements. The most accurate way to tap.",
+            listOf(intP("id", "Element number", 1, 99))
+        ),
         tool("play_music", "Play a song or artist.", listOf(strP("query", "Song or artist name", maxLen = 120))),
         tool("search_web", "Search the web for current information and return a short answer.", listOf(strP("query", "Search query", maxLen = 200))),
         tool("get_current_time", "Get the current date and time on the phone."),
@@ -218,6 +227,36 @@ object ToolRegistry {
             "list_event_triggers", "Show which phone event announcements are on.",
             group = "extra", kw = listOf("event", "events", "announce", "alerts", "charger", "battery")
         ),
+        tool(
+            "wait_for_screen_text", "Wait until some text appears on the screen (for example after a page loads). Gives up after the timeout.",
+            listOf(strP("text", "Text to wait for", maxLen = 100), intP("timeout_seconds", "How long to wait, default 15", 1, 60, required = false)),
+            group = "extra", kw = listOf("wait", "screen", "load", "loading", "appear", "ruko")
+        ),
+        tool(
+            "wait", "Pause for a few seconds, for example while something loads.",
+            listOf(intP("seconds", "Seconds to wait", 1, 30)),
+            group = "extra", kw = listOf("pause", "wait", "ruko", "sleep", "delay")
+        ),
+        tool(
+            "scroll_to", "Scroll the screen until some text is visible.",
+            listOf(
+                strP("text", "Text to find", maxLen = 100),
+                strP("direction", "Which way the content should go, default down", required = false, enumValues = listOf("down", "up")),
+                intP("max_scrolls", "Give up after this many scrolls, default 8", 1, 15, required = false)
+            ),
+            group = "extra", kw = listOf("scroll", "find", "search", "screen", "neeche")
+        ),
+        tool(
+            "swipe_screen", "Swipe a finger across the screen (up, down, left or right), for example to change pages.",
+            listOf(strP("direction", "Finger direction", enumValues = listOf("up", "down", "left", "right"))),
+            group = "extra", kw = listOf("swipe", "slide", "page", "gesture")
+        ),
+        tool(
+            "tap_coordinates", "Tap a point on the screen by pixel position. Use only when tap_element cannot reach it.",
+            listOf(intP("x", "Pixels from the left", 0, 5000), intP("y", "Pixels from the top", 0, 5000)),
+            group = "extra", kw = listOf("tap", "coordinates", "pixel", "position", "click")
+        ),
+        tool("get_lock_state", "Say whether the phone screen is locked or unlocked.", group = "extra", kw = listOf("lock", "locked", "unlocked", "keyguard")),
         tool(
             "open_dialer", "Open the phone dialer with a number filled in, without calling.",
             listOf(strP("number", "Phone number", maxLen = 20, pattern = DIAL_PATTERN)),

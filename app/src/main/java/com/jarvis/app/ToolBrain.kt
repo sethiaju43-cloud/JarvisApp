@@ -43,7 +43,7 @@ object ToolBrain {
         }
         val confirm = ctx.applicationContext.getSharedPreferences("jarvis", Context.MODE_PRIVATE)
             .getBoolean("confirm_send", true)
-        val agent = ToolAgent(llm, AndroidToolRunner(ctx), confirm, stop = stop)
+        val agent = ToolAgent(llm, AndroidToolRunner(ctx, stop), confirm, stop = stop)
         val res = agent.run(ContextTrimmer.trim(history, 6000))
         val tail = when (res) {
             is AgentResult.Done -> "DONE: " + res.text.take(120)
@@ -163,7 +163,7 @@ class AndroidToolLlm(private val ctx: Context, private val system: String, priva
     }
 }
 
-class AndroidToolRunner(private val ctx: Context) : ToolRunner {
+class AndroidToolRunner(private val ctx: Context, private val stop: () -> Boolean = { false }) : ToolRunner {
 
     // Ye tools screen badalte hain: agla kadam lene se pehle thoda ruko
     private val uiTools = setOf("open_app", "tap_text", "type_text", "scroll_screen", "go_home", "go_back", "open_recents", "open_settings", "navigate", "open_url", "play_music")
@@ -201,6 +201,14 @@ class AndroidToolRunner(private val ctx: Context) : ToolRunner {
                 "remove_routine" -> ToolOutput(Routines.removeByNumber(ctx, call.args.optInt("number", 0)))
                 "set_event_trigger" -> ToolOutput(DeviceEvents.setFromArgs(ctx, call.args))
                 "list_event_triggers" -> ToolOutput(DeviceEvents.listText(ctx), silent = true)
+                "read_screen_elements" -> ScreenTools.readElements(ctx)
+                "tap_element" -> withShot(ScreenTools.tapElement(ctx, call.args.optInt("id", 0)))
+                "tap_coordinates" -> withShot(ScreenTools.tapCoordinates(ctx, call.args.optInt("x", 0), call.args.optInt("y", 0)))
+                "swipe_screen" -> withShot(ScreenTools.swipe(ctx, call.args.optString("direction", "up")))
+                "scroll_to" -> withShot(ScreenTools.scrollTo(ctx, call.args.optString("text", ""), call.args.optString("direction", "down"), call.args.optInt("max_scrolls", 8), stop))
+                "wait_for_screen_text" -> ScreenTools.waitForText(ctx, call.args.optString("text", ""), call.args.optInt("timeout_seconds", 15), stop)
+                "wait" -> ScreenTools.pause(call.args.optInt("seconds", 1), stop)
+                "get_lock_state" -> ScreenTools.lockState(ctx)
                 "job_status" -> ToolOutput(ToolPrompt.untrusted("BACKGROUND TASK", SubAgentRunner.status(call.args.optInt("id", 0))), silent = true)
                 "cancel_job" -> ToolOutput(SubAgentRunner.cancel(call.args.optInt("id", 0)))
                 else -> legacy(call)
@@ -222,6 +230,13 @@ class AndroidToolRunner(private val ctx: Context) : ToolRunner {
         // Screen badalne wale kaam ke baad nayi screen ka text saath bhejo: model ko alag read_screen_text nahi bulana padta
         val snap = if (call.name in screenAfter) screenSnapshot() else ""
         return ToolOutput(if (snap.isEmpty()) res else res + "\n" + snap)
+    }
+
+    /** Screen badalne wale naye tools ke baad bhi nayi screen saath bhejo (runner ne confirm maanga ho to nahi) */
+    private fun withShot(o: ToolOutput): ToolOutput {
+        if (o.confirmLine != null) return o
+        val s = screenSnapshot()
+        return if (s.isEmpty()) o else ToolOutput(o.text + "\n" + s, o.reveal, o.silent)
     }
 
     private val screenAfter = setOf("open_app", "tap_text", "type_text", "scroll_screen", "go_home", "go_back", "open_recents")
