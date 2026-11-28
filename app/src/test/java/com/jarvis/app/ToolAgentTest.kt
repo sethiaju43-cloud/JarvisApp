@@ -390,6 +390,43 @@ class ToolAgentTest {
     }
 
     @Test
+    fun executedCallsAreRecordedForLearning() {
+        val llm = FakeLlm(listOf(
+            modelCalls(call("1", "set_torch", "{\"on\":true}"), call("2", "wipe_device")),
+            modelCalls(call("3", "go_home")),
+            modelText("ho gaya")
+        ))
+        val agent = ToolAgent(llm, FakeRunner())
+        agent.run(hist)
+        // blocked (reject hua) wala nahi, sirf jo sach mein chala
+        assertEquals(listOf("set_torch", "go_home"), agent.executedCalls.map { it.name })
+        assertFalse(agent.hadFailure)
+    }
+
+    @Test
+    fun failedStepMarksTheRunAsNotLearnable() {
+        val runner = object : ToolRunner {
+            override fun run(call: ToolCall) = ToolOutput("Tap nahi hua 😕")
+        }
+        val agent = ToolAgent(FakeLlm(listOf(modelCalls(call("1", "tap_text", "{\"text\":\"X\"}")), modelText("ok"))), runner)
+        agent.run(hist)
+        assertTrue(agent.hadFailure)
+    }
+
+    @Test
+    fun confirmStepIsRecordedAsTheLastCall() {
+        val llm = FakeLlm(listOf(
+            modelCalls(call("1", "open_app", "{\"name\":\"WhatsApp\"}")),
+            modelCalls(call("2", "tap_text", "{\"text\":\"Send\"}"))
+        ))
+        val agent = ToolAgent(llm, FakeRunner())
+        val r = agent.run(hist)
+        assertTrue(r is AgentResult.NeedConfirm)
+        assertEquals(listOf("open_app", "tap_text"), agent.executedCalls.map { it.name })
+        assertFalse(agent.hadFailure)
+    }
+
+    @Test
     fun untrustedWrapperAndRules() {
         val w = ToolPrompt.untrusted("SCREEN TEXT", "hello")
         assertTrue(w.contains("untrusted"))

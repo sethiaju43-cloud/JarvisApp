@@ -258,6 +258,15 @@ object ToolRegistry {
         ),
         tool("get_lock_state", "Say whether the phone screen is locked or unlocked.", group = "extra", kw = listOf("lock", "locked", "unlocked", "keyguard")),
         tool(
+            "list_tasks", "List the tasks Jarvi has learned and can now repeat by itself without any AI call, numbered.",
+            group = "extra", kw = listOf("task", "tasks", "learned", "seekha", "yaad", "macro", "automatic")
+        ),
+        tool(
+            "forget_task", "Forget a learned task by its number from list_tasks.",
+            listOf(intP("number", "Task number as listed", 1, 30)),
+            group = "extra", kw = listOf("task", "tasks", "forget", "bhool", "remove", "delete", "learned", "seekha")
+        ),
+        tool(
             "open_dialer", "Open the phone dialer with a number filled in, without calling.",
             listOf(strP("number", "Phone number", maxLen = 20, pattern = DIAL_PATTERN)),
             group = "extra", kw = listOf("dial", "dialer", "number", "keypad")

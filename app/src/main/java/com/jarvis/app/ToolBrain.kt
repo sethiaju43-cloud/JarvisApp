@@ -28,7 +28,7 @@ object ToolBrain {
         Prompts.chatOnly(ctx, Task.CHAT, timeLine, memLine) + ToolPrompt.RULES
 
     /** null = tool path use nahi ho sakta (koi online provider nahi), Brain purane tareeke se chale */
-    fun run(ctx: Context, history: List<Pair<String, String>>, system: String, stop: () -> Boolean): AgentResult? {
+    fun run(ctx: Context, history: List<Pair<String, String>>, system: String, stop: () -> Boolean, command: String = ""): AgentResult? {
         // Budget yahan bhi lagu hai (router jaisa): limit poori ho to purana tareeka chale (wo local model ya budget message dega)
         val budget = Budget.state(ctx)
         if (budget.exceeded) {
@@ -51,6 +51,13 @@ object ToolBrain {
             is AgentResult.Failed -> "FAILED (purana tareeka chalega): " + res.reason
         }
         lastTrace = (agent.trace + tail).joinToString("\n")
+        // Kaam poora hua aur theek raha: seekh lo, taaki agli baar bina API ke ho jaye
+        val finished = (res is AgentResult.Done && !res.text.contains("😕") && res.text != "Ruk gayi 🛑") || res is AgentResult.NeedConfirm
+        if (finished && !stop() && command.isNotBlank() && TaskMemory.learn(ctx, command, agent.executedCalls, agent.hadFailure)) {
+            val note = "\n🧠 Ye tareeka yaad kar liya: agli baar yahi kaam bina API ke ho jayega."
+            if (res is AgentResult.Done) return AgentResult.Done(res.text + note, res.steps)
+            if (res is AgentResult.NeedConfirm) return AgentResult.NeedConfirm(res.question + note, res.line, res.steps)
+        }
         return res
     }
 }
@@ -209,6 +216,8 @@ class AndroidToolRunner(private val ctx: Context, private val stop: () -> Boolea
                 "wait_for_screen_text" -> ScreenTools.waitForText(ctx, call.args.optString("text", ""), call.args.optInt("timeout_seconds", 15), stop)
                 "wait" -> ScreenTools.pause(call.args.optInt("seconds", 1), stop)
                 "get_lock_state" -> ScreenTools.lockState(ctx)
+                "list_tasks" -> ToolOutput(TaskMemory.listText(ctx), silent = true)
+                "forget_task" -> ToolOutput(TaskMemory.forget(ctx, call.args.optInt("number", 0)))
                 "job_status" -> ToolOutput(ToolPrompt.untrusted("BACKGROUND TASK", SubAgentRunner.status(call.args.optInt("id", 0))), silent = true)
                 "cancel_job" -> ToolOutput(SubAgentRunner.cancel(call.args.optInt("id", 0)))
                 else -> legacy(call)

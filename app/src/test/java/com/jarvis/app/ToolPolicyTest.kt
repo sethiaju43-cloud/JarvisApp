@@ -240,6 +240,15 @@ class ToolPolicyTest {
     }
 
     @Test
+    fun p11TaskArgs() {
+        allow("list_tasks")
+        assertEquals(2, allow("forget_task", "{\"number\":2}").args.getInt("number"))
+        assertEquals("bad_arg", rejectCode("forget_task", "{\"number\":0}"))
+        assertEquals("bad_arg", rejectCode("forget_task", "{\"number\":31}"))
+        assertEquals("missing_arg", rejectCode("forget_task"))
+    }
+
+    @Test
     fun extraArgsAreDropped() {
         val c = allow("go_home", "{\"sneaky\":\"value\"}")
         assertTrue(!c.args.has("sneaky"))

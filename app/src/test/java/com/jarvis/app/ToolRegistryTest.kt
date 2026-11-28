@@ -148,6 +148,23 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun p11TaskTools() {
+        assertEquals("extra", ToolRegistry.get("list_tasks")!!.group)
+        assertEquals("extra", ToolRegistry.get("forget_task")!!.group)
+        assertTrue(ToolRegistry.search("forget a learned task").map { it.name }.contains("forget_task"))
+        assertTrue(ToolRegistry.search("list learned tasks").map { it.name }.contains("list_tasks"))
+        assertTrue(ToolRegistry.coreTools().size in 15..30)
+        // seekhne ki allowlist ke har tool asli registry mein hai
+        for (n in TaskLogic.REPLAYABLE + TaskLogic.CONFIRM_LAST + TaskLogic.INFO_TOOLS) {
+            assertTrue("registry mein nahi: $n", ToolRegistry.get(n) != null)
+        }
+        // allowlist mein koi bhi tool jaankari/search/time/reminder jaisa badalne wala nahi
+        for (n in listOf("search_web", "get_current_time", "add_reminder", "add_routine", "start_background_task", "remember_fact", "tap_element", "tap_coordinates")) {
+            assertFalse(n, TaskLogic.REPLAYABLE.contains(n))
+        }
+    }
+
+    @Test
     fun legacyLines() {
         assertEquals("OPEN: WhatsApp", line("open_app", "{\"name\":\"WhatsApp\"}"))
         assertEquals("ACTION: HOME", line("go_home"))
@@ -188,7 +205,8 @@ class ToolRegistryTest {
             "set_driving_mode", "recall_memory", "share_text", "compose_email", "open_dialer",
             "start_background_task", "job_status", "cancel_job", "add_routine", "list_routines", "remove_routine",
             "set_event_trigger", "list_event_triggers",
-            "read_screen_elements", "tap_element", "wait_for_screen_text", "wait", "scroll_to", "swipe_screen", "tap_coordinates", "get_lock_state"
+            "read_screen_elements", "tap_element", "wait_for_screen_text", "wait", "scroll_to", "swipe_screen", "tap_coordinates", "get_lock_state",
+            "list_tasks", "forget_task"
         )) assertNull(n, line(n))
         assertNull(line("no_such_tool"))
     }

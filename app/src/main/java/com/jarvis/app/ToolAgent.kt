@@ -68,6 +68,12 @@ class ToolAgent(
     /** Debug ke liye: kya hua, kis order mein (sirf memory mein, user "tool trace" bole tab dikhta hai) */
     val trace = ArrayList<String>()
 
+    /** Jo tool sach mein chale (aur aakhir mein poochhe gaye confirm wala), seekhne ke liye */
+    val executedCalls = ArrayList<ToolCall>()
+
+    /** Koi step fail hua (😕 jaisa)? To is kaam ko seekhna nahi chahiye */
+    var hadFailure = false
+
     private fun note(s: String) {
         trace.add(s.replace("\n", " ").take(180))
         if (trace.size > 60) trace.removeAt(0)
@@ -142,6 +148,7 @@ class ToolAgent(
                             results.add(ToolResult(call.id, call.name, "This action is not supported."))
                         } else {
                             note("CONFIRM " + call.name + ": " + line)
+                            executedCalls.add(d.call)
                             return AgentResult.NeedConfirm(d.question, line, steps)
                         }
                     } else {
@@ -169,6 +176,8 @@ class ToolAgent(
                     return AgentResult.NeedConfirm(out.confirmQuestion ?: "Pakka karun? (haan / nahi)", cl, steps)
                 }
                 executed++
+                executedCalls.add(toRun)
+                if (TaskLogic.isFailure(out.text)) hadFailure = true
                 val text = if (out.text.length <= resultLimit) out.text else out.text.take(resultLimit) + "..."
                 for (r in out.reveal) offered.add(r)
                 if (!out.silent) steps.add(firstLine(out.text))

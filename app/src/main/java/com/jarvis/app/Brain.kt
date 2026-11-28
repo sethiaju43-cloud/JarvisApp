@@ -722,11 +722,22 @@ object Brain {
 
         // TOOLS-P1: naya tool-calling dimaag (Settings mein beta switch ON ho tab, sirf phone-kaam par).
         // Koi dikkat ho to null/Failed aata hai aur neeche ka purana tareeka chalta hai.
+        // TOOLS-P11: seekha hua kaam bina API ke (wahi command dobara aaye to)
+        if (ToolBrain.enabled(context) && imageB64 == null && !stopFlag) {
+            val rp = TaskMemory.tryReplay(context, userText, { stopFlag })
+            if (rp != null) {
+                val pl = rp.pendingLine
+                if (pl != null) setPending(pl)
+                noteLocal(context, userText, rp.text)
+                return rp.text
+            }
+        }
+
         // TOOLS-P6: web-search wale sawaal purane tareeke se (Gemini grounding + sources), par research/likhai jaise bade kaam tool path se
         if (ToolBrain.enabled(context) && imageB64 == null && !stopFlag &&
             (JobIntent.looksLikeJob(userText) || ((task == Task.PHONE || ActionWords.any(userText)) && !TaskClassifier.needsSearch(userText)))
         ) {
-            val tres = ToolBrain.run(context, mergeSame(base), ToolBrain.system(context, timeLine, memLine), { stopFlag })
+            val tres = ToolBrain.run(context, mergeSame(base), ToolBrain.system(context, timeLine, memLine), { stopFlag }, userText)
             if (tres is AgentResult.Done) {
                 val tt = tres.text.replace(moreRegex, "").trim()
                 val shown = if (tt.isBlank()) "Ho gaya ✅" else tt
