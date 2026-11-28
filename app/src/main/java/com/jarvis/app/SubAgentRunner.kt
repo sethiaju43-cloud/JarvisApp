@@ -26,10 +26,19 @@ object SubAgentRunner {
     val board = JobBoard()
     private const val CHANNEL = "jarvi_jobs"
 
-    fun start(ctx: Context, kindText: String, brief: String, workersWanted: Int = 1): String {
+    /** Job ka user-command (ya brief) jisse jawab yaad rakhne ki key banti hai */
+    private val jobKeys = java.util.concurrent.ConcurrentHashMap<Int, String>()
+
+    fun start(ctx: Context, kindText: String, brief: String, workersWanted: Int = 1, fresh: Boolean = false): String {
         val kind = SubAgent.kindFromText(kindText) ?: return "Kaam ka type sahi nahi: research, writing ya plan chuno."
         val app = ctx.applicationContext
         if (brief.isBlank()) return "Kaam ka vivaran khali hai. Batao kya karna hai."
+        // Pehle isi kaam ka jawab yaad ho to bina API ke wahi do (fresh=true ho to nahi)
+        val keyText = if (ToolBrain.currentCommand.isNotBlank()) ToolBrain.currentCommand else brief
+        if (!fresh) {
+            val saved = AnswerCache.lookupJob(app, kind, keyText)
+            if (saved != null) return ToolPrompt.untrusted("SAVED RESULT", saved)
+        }
         if (Budget.state(app).exceeded) return "Budget poora ho gaya, abhi background kaam nahi chala sakti."
         if (!AndroidToolLlm(app, "", Task.REASONING).hasCandidates()) {
             return "Background kaam ke liye online model chahiye. Settings mein API key daalo, ya cooldown khatam hone do 😕"
@@ -38,6 +47,7 @@ object SubAgentRunner {
         return when (val r = board.start(kind, brief, System.currentTimeMillis(), n)) {
             is JobStart.Busy -> r.reason
             is JobStart.Started -> {
+                jobKeys[r.job.id] = keyText
                 launch(app, r.job)
                 val how = if (n > 1) "master + " + n + " helper agents ek saath, lagbhag " + MasterPlan.estimateCalls(n) + " model calls"
                 else "ek agent, lagbhag " + MasterPlan.estimateCalls(1) + " model calls"
@@ -157,7 +167,11 @@ object SubAgentRunner {
             else agentRun(app, job, SubAgent.systemPrompt(job.kind, timeLine()), job.brief, SubAgent.maxRounds(job.kind))
             val now = System.currentTimeMillis()
             when (res) {
-                is AgentResult.Done -> board.complete(job.id, res.text, now)
+                is AgentResult.Done -> {
+                    if (board.complete(job.id, res.text, now)) {
+                        AnswerCache.storeJob(app, job.kind, jobKeys[job.id] ?: job.brief, res.text)
+                    }
+                }
                 is AgentResult.Failed -> board.fail(job.id, "Model se jawab nahi mila: " + res.reason.take(100), now)
                 is AgentResult.NeedConfirm -> board.fail(job.id, "Is kaam ke liye background agent ko ijazat nahi.", now)
             }

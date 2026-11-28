@@ -21,6 +21,10 @@ object ToolBrain {
     @Volatile
     var lastTrace: String = ""
 
+    /** Abhi chal rahe kaam ka user ka asli command (background kaam ke jawab ko yaad rakhne ke liye key) */
+    @Volatile
+    var currentCommand: String = ""
+
     fun traceReport(): String =
         if (lastTrace.isBlank()) "Abhi tak tool-mode ka koi kaam nahi hua." else "Pichla tool-mode trace:\n" + lastTrace
 
@@ -36,6 +40,7 @@ object ToolBrain {
             return null
         }
         Budget.alertOnce(ctx, budget)?.let { ModelRouter.onStatus?.invoke(it) }
+        currentCommand = command
         val llm = AndroidToolLlm(ctx, system)
         if (!llm.hasCandidates()) {
             lastTrace = "Koi online provider available nahi (tool mode skip hua, purana tareeka chala)."
@@ -202,7 +207,7 @@ class AndroidToolRunner(private val ctx: Context, private val stop: () -> Boolea
                 "share_text" -> shareText(call.args.optString("text", ""))
                 "compose_email" -> composeEmail(call.args)
                 "open_dialer" -> openDialer(call.args.optString("number", ""))
-                "start_background_task" -> ToolOutput(SubAgentRunner.start(ctx, call.args.optString("kind", ""), call.args.optString("brief", ""), call.args.optInt("workers", 1)))
+                "start_background_task" -> ToolOutput(SubAgentRunner.start(ctx, call.args.optString("kind", ""), call.args.optString("brief", ""), call.args.optInt("workers", 1), call.args.optBoolean("fresh", false)))
                 "add_routine" -> ToolOutput(Routines.addFromArgs(ctx, call.args))
                 "list_routines" -> ToolOutput(Routines.listText(ctx), silent = true)
                 "remove_routine" -> ToolOutput(Routines.removeByNumber(ctx, call.args.optInt("number", 0)))
@@ -218,6 +223,9 @@ class AndroidToolRunner(private val ctx: Context, private val stop: () -> Boolea
                 "get_lock_state" -> ScreenTools.lockState(ctx)
                 "list_tasks" -> ToolOutput(TaskMemory.listText(ctx), silent = true)
                 "forget_task" -> ToolOutput(TaskMemory.forget(ctx, call.args.optInt("number", 0)))
+                "export_skills" -> ToolOutput(BackupTools.export(ctx))
+                "cache_status" -> ToolOutput(AnswerCache.statusText(ctx), silent = true)
+                "clear_cache" -> ToolOutput(AnswerCache.clear(ctx))
                 "job_status" -> ToolOutput(ToolPrompt.untrusted("BACKGROUND TASK", SubAgentRunner.status(call.args.optInt("id", 0))), silent = true)
                 "cancel_job" -> ToolOutput(SubAgentRunner.cancel(call.args.optInt("id", 0)))
                 else -> legacy(call)

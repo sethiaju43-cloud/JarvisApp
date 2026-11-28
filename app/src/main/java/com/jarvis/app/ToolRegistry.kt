@@ -88,6 +88,7 @@ object ToolRegistry {
             listOf(
                 strP("kind", "Type of task", enumValues = listOf("research", "writing", "plan")),
                 strP("brief", "Full description of what to research, write or plan, with all details the user gave", maxLen = 600),
+                boolP("fresh", "true = ignore any saved earlier result and do it again from scratch", required = false),
                 intP("workers", "How many helper agents to split the work across, running in parallel (2 to 5 for a big research or plan, 1 for a single agent). More helpers is faster but uses more API calls.", 1, 5, required = false)
             )
         ),
@@ -265,6 +266,19 @@ object ToolRegistry {
             "forget_task", "Forget a learned task by its number from list_tasks.",
             listOf(intP("number", "Task number as listed", 1, 30)),
             group = "extra", kw = listOf("task", "tasks", "forget", "bhool", "remove", "delete", "learned", "seekha")
+        ),
+        tool(
+            "export_skills",
+            "Make a backup of everything Jarvi has learned (learned tasks and saved answers) and open the share sheet so the user can store it safely. To restore, the user pastes the backup into the chat. API keys are never included.",
+            group = "extra", kw = listOf("backup", "export", "save", "skills", "memory", "restore", "share")
+        ),
+        tool(
+            "cache_status", "Show how many answers Jarvi has saved and how many requests it did not have to send to the AI.",
+            group = "extra", kw = listOf("cache", "saved", "api", "bachat", "kharcha", "stats")
+        ),
+        tool(
+            "clear_cache", "Delete the saved answers (learned tasks stay).",
+            group = "extra", kw = listOf("cache", "clear", "saaf", "answers", "reset")
         ),
         tool(
             "open_dialer", "Open the phone dialer with a number filled in, without calling.",

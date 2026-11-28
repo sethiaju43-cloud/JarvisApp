@@ -249,6 +249,15 @@ class ToolPolicyTest {
     }
 
     @Test
+    fun p12Args() {
+        assertTrue(allow("start_background_task", "{\"kind\":\"research\",\"brief\":\"x ki research\",\"fresh\":\"true\"}").args.getBoolean("fresh"))
+        assertTrue(!allow("start_background_task", "{\"kind\":\"research\",\"brief\":\"x ki research\"}").args.has("fresh"))
+        allow("export_skills")
+        allow("cache_status")
+        allow("clear_cache")
+    }
+
+    @Test
     fun extraArgsAreDropped() {
         val c = allow("go_home", "{\"sneaky\":\"value\"}")
         assertTrue(!c.args.has("sneaky"))

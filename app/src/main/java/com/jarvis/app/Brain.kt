@@ -448,7 +448,22 @@ object Brain {
         lastReplyWasError = false
         running = true
         try {
+            // TOOLS-P12: paste kiya hua backup seedha restore karo, aur pehle ka jawab yaad ho to bina API ke wahi do
+            val imported = BackupTools.tryImport(context, history)
+            if (imported != null) {
+                lastRoute = null
+                return imported
+            }
+            val saved = AnswerCache.lookup(context, history)
+            if (saved != null) {
+                lastRoute = null
+                val asked = history.lastOrNull { it.first == "user" }?.second ?: ""
+                noteLocal(context, asked, saved)
+                return saved
+            }
+            lastRoute = null
             val r = askSmartInner(context, history)
+            if (!stopFlag) AnswerCache.store(context, history, r, lastRoute, lastReplyWasError)
             return if (stopFlag) "Ruk gayi 🛑" else r
         } finally {
             running = false

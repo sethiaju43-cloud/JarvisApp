@@ -22,6 +22,18 @@ object TaskMemory {
         sp(ctx).edit().putString("book", TaskLogic.toJson(book.all())).apply()
     }
 
+    @Synchronized
+    fun all(ctx: Context): List<Macro> = load(ctx).all()
+
+    /** Backup se aaye kaam jodo (naye hi jodte hain). Kitne jude, wo lauta do. */
+    @Synchronized
+    fun merge(ctx: Context, incoming: List<Macro>): Int {
+        val book = load(ctx)
+        val n = BackupLogic.mergeTasks(book, incoming)
+        if (n > 0) save(ctx, book)
+        return n
+    }
+
     /** Command pehle seekha ja chuka ho to bina API ke chalao. Na mile ya beech mein fail ho to null (purana tareeka chale). */
     @Synchronized
     fun tryReplay(ctx: Context, command: String, stop: () -> Boolean): Outcome? {

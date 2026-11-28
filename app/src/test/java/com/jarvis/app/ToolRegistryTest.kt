@@ -165,6 +165,18 @@ class ToolRegistryTest {
     }
 
     @Test
+    fun p12CacheAndBackupTools() {
+        for (n in listOf("export_skills", "cache_status", "clear_cache")) assertEquals(n, "extra", ToolRegistry.get(n)!!.group)
+        assertTrue(ToolRegistry.search("backup my skills").map { it.name }.contains("export_skills"))
+        assertTrue(ToolRegistry.search("cache status").map { it.name }.contains("cache_status"))
+        assertTrue(ToolRegistry.search("clear saved answers cache").map { it.name }.contains("clear_cache"))
+        assertTrue(ToolRegistry.coreTools().size in 15..30)
+        val fresh = ToolRegistry.get("start_background_task")!!.params.first { it.name == "fresh" }
+        assertFalse(fresh.required)
+        assertEquals(ParamType.BOOLEAN, fresh.type)
+    }
+
+    @Test
     fun legacyLines() {
         assertEquals("OPEN: WhatsApp", line("open_app", "{\"name\":\"WhatsApp\"}"))
         assertEquals("ACTION: HOME", line("go_home"))
@@ -206,7 +218,7 @@ class ToolRegistryTest {
             "start_background_task", "job_status", "cancel_job", "add_routine", "list_routines", "remove_routine",
             "set_event_trigger", "list_event_triggers",
             "read_screen_elements", "tap_element", "wait_for_screen_text", "wait", "scroll_to", "swipe_screen", "tap_coordinates", "get_lock_state",
-            "list_tasks", "forget_task"
+            "list_tasks", "forget_task", "export_skills", "cache_status", "clear_cache"
         )) assertNull(n, line(n))
         assertNull(line("no_such_tool"))
     }
